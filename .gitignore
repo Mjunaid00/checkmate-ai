@@ -1,0 +1,59 @@
+# CheckMate AI — Git ignore rules
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Environment
+.env
+*.env
+!.env.example
+
+# Uploads (binary exam files — do not commit)
+uploads/
+
+# Virtual envs
+venv/
+.venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.suo
+*.user
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Node
+node_modules/
+frontend/dist/
+frontend/.vite/
+
+# Launcher logs
+logs/
+
+# Database backups made by scripts/db_backup.py (contain accounts and student data)
+db-backup/
+
+# Local notes with credentials and the pre-fix snapshot - never commit
+Login.txt
+_backup_before_fixes_2026-11-04/
+
+# Build-time address of the backend tunnel for GitHub Pages (not a secret)
+!frontend/.env.production
+
+# Demo video (101 MB - above the GitHub 100 MB file limit); keep it out of the repository
+docs/testvideo/

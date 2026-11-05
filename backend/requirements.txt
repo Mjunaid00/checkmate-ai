@@ -1,0 +1,25 @@
+# Core
+fastapi
+uvicorn[standard]
+motor
+python-dotenv
+python-multipart
+
+# Auth
+python-jose[cryptography]
+passlib[bcrypt]
+pydantic[email]
+
+# HTTP Client (for Ollama)
+httpx
+
+# OCR (Module 4) - Chandra OCR 2
+chandra-ocr[hf]
+Pillow
+
+# Lightweight PDF text extraction (typed PDFs → quiz generator)
+pymupdf
+
+# Database
+pymongo
+dnspython   # needed for mongodb+srv:// connection strings (MongoDB Atlas)

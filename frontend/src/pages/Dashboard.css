@@ -1,0 +1,154 @@
+.dashboard-wrapper {
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.dashboard-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 2.5rem;
+}
+
+.page-title {
+  font-size: 1.8rem;
+  margin-bottom: 0.25rem;
+}
+
+.page-subtitle {
+  color: var(--text-secondary);
+}
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 1.5rem;
+  margin-bottom: 2.5rem;
+}
+
+.stat-card {
+  padding: 1.5rem;
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+}
+
+.stat-icon {
+  width: 54px;
+  height: 54px;
+  border-radius: 1rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  flex-shrink: 0;
+}
+
+.bg-blue { background: linear-gradient(135deg, #3B82F6 0%, #2563EB 100%); }
+.bg-emerald { background: linear-gradient(135deg, #10B981 0%, #059669 100%); }
+.bg-indigo { background: linear-gradient(135deg, #6366F1 0%, #4F46E5 100%); }
+
+.stat-info {
+  display: flex;
+  flex-direction: column;
+}
+
+.stat-label {
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.stat-value {
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  line-height: 1.2;
+}
+
+.chart-section {
+  padding: 1.5rem;
+  margin-bottom: 2.5rem;
+}
+
+.section-title {
+  font-size: 1.15rem;
+  margin-bottom: 1.5rem;
+}
+
+.chart-container {
+  height: 300px;
+  width: 100%;
+}
+
+.empty-chart {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+  border-radius: 0.5rem;
+  border: 1px dashed var(--border-color);
+}
+
+.table-section {
+  padding: 1.5rem;
+}
+
+.table-wrapper {
+  overflow-x: auto;
+}
+
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.data-table th, .data-table td {
+  padding: 1rem;
+  text-align: left;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.data-table th {
+  color: var(--text-secondary);
+  font-weight: 600;
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  background-color: var(--bg-tertiary);
+}
+
+.data-table tbody tr:hover {
+  background-color: var(--accent-soft);
+}
+
+.data-table tr:last-child td {
+  border-bottom: none;
+}
+
+.status-badge {
+  padding: 0.25rem 0.75rem;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: capitalize;
+}
+
+.status-uploaded, .status-processing {
+  background: var(--status-pending-bg);
+  color: var(--status-pending);
+}
+
+.status-graded {
+  background: var(--status-graded-bg);
+  color: var(--status-graded);
+}
+
+.status-failed {
+  background: var(--status-failed-bg);
+  color: var(--status-failed);
+}

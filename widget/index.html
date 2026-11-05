@@ -1,0 +1,1247 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CheckMate AI — Project Guide</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #0b0e1a;
+      --bg2: #11152a;
+      --bg3: #181d35;
+      --surface: #1e2340;
+      --surface2: #242947;
+      --border: #2e3455;
+      --border-light: #3d4470;
+      --text: #e8eaf6;
+      --text-muted: #7b82aa;
+      --text-faint: #4a5070;
+
+      --purple: #7c6af7;
+      --purple-light: #a99ef9;
+      --purple-dim: #3d3580;
+      --purple-glow: rgba(124,106,247,0.18);
+
+      --teal: #2dd4aa;
+      --teal-light: #5de8c8;
+      --teal-dim: #0e5c4a;
+      --teal-glow: rgba(45,212,170,0.15);
+
+      --coral: #f87171;
+      --coral-light: #fca5a5;
+      --coral-dim: #7f1d1d;
+      --coral-glow: rgba(248,113,113,0.15);
+
+      --amber: #fbbf24;
+      --amber-light: #fcd34d;
+      --amber-dim: #78350f;
+      --amber-glow: rgba(251,191,36,0.15);
+
+      --green: #4ade80;
+      --green-light: #86efac;
+      --green-dim: #14532d;
+      --green-glow: rgba(74,222,128,0.15);
+
+      --blue: #60a5fa;
+      --blue-light: #93c5fd;
+      --blue-dim: #1e3a8a;
+
+      --radius: 14px;
+      --radius-sm: 8px;
+      --radius-xs: 5px;
+      --transition: 0.22s cubic-bezier(0.4,0,0.2,1);
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Inter', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* ─────── BG GLOW ─────── */
+    body::before {
+      content: '';
+      position: fixed;
+      top: -200px; left: -200px;
+      width: 700px; height: 700px;
+      background: radial-gradient(circle, rgba(124,106,247,0.07) 0%, transparent 70%);
+      pointer-events: none;
+      z-index: 0;
+    }
+    body::after {
+      content: '';
+      position: fixed;
+      bottom: -200px; right: -100px;
+      width: 600px; height: 600px;
+      background: radial-gradient(circle, rgba(45,212,170,0.05) 0%, transparent 70%);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    .page-wrap {
+      position: relative;
+      z-index: 1;
+      max-width: 960px;
+      margin: 0 auto;
+      padding: 40px 24px 80px;
+    }
+
+    /* ─────── HEADER ─────── */
+    .header {
+      text-align: center;
+      margin-bottom: 52px;
+    }
+    .header-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: var(--purple-glow);
+      border: 1px solid var(--purple-dim);
+      border-radius: 50px;
+      padding: 6px 16px;
+      font-size: 0.72rem;
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--purple-light);
+      margin-bottom: 20px;
+    }
+    .header-badge span { font-size: 1rem; }
+    .header h1 {
+      font-size: clamp(1.9rem, 5vw, 2.9rem);
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      line-height: 1.15;
+      background: linear-gradient(135deg, #fff 0%, var(--purple-light) 55%, var(--teal-light) 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      margin-bottom: 12px;
+    }
+    .header p {
+      color: var(--text-muted);
+      font-size: 1rem;
+      max-width: 560px;
+      margin: 0 auto 28px;
+      line-height: 1.6;
+    }
+
+    /* ─────── OVERALL PROGRESS ─────── */
+    .overall-progress {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 24px 28px;
+      margin-bottom: 40px;
+      display: flex;
+      align-items: center;
+      gap: 28px;
+      flex-wrap: wrap;
+    }
+    .progress-ring-wrap { position: relative; flex-shrink: 0; }
+    .progress-ring-wrap svg { display: block; }
+    .progress-ring-track { fill: none; stroke: var(--border); stroke-width: 6; }
+    .progress-ring-fill {
+      fill: none;
+      stroke: url(#ringGrad);
+      stroke-width: 6;
+      stroke-linecap: round;
+      transform: rotate(-90deg);
+      transform-origin: 50% 50%;
+      transition: stroke-dashoffset 0.7s cubic-bezier(0.4,0,0.2,1);
+    }
+    .progress-ring-label {
+      position: absolute; inset: 0;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+    }
+    .progress-ring-pct {
+      font-size: 1.4rem;
+      font-weight: 800;
+      color: var(--purple-light);
+      line-height: 1;
+    }
+    .progress-ring-sub { font-size: 0.65rem; color: var(--text-muted); margin-top: 2px; }
+    .progress-info { flex: 1; min-width: 180px; }
+    .progress-info h3 { font-size: 1.05rem; font-weight: 700; margin-bottom: 6px; }
+    .progress-info p { font-size: 0.85rem; color: var(--text-muted); line-height: 1.5; }
+    .progress-bar-wrap { margin-top: 14px; }
+    .progress-bar-bg {
+      background: var(--border);
+      border-radius: 50px;
+      height: 6px;
+      overflow: hidden;
+    }
+    .progress-bar-fill {
+      height: 100%;
+      border-radius: 50px;
+      background: linear-gradient(90deg, var(--purple) 0%, var(--teal) 100%);
+      transition: width 0.7s cubic-bezier(0.4,0,0.2,1);
+    }
+    .progress-bar-legend {
+      display: flex;
+      gap: 18px;
+      margin-top: 10px;
+      flex-wrap: wrap;
+    }
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.78rem;
+      color: var(--text-muted);
+    }
+    .legend-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+
+    /* ─────── PHASE TABS ─────── */
+    .phase-tabs {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 32px;
+      flex-wrap: wrap;
+    }
+    .phase-tab {
+      padding: 7px 16px;
+      border-radius: 50px;
+      font-size: 0.78rem;
+      font-weight: 600;
+      cursor: pointer;
+      border: 1px solid var(--border);
+      background: transparent;
+      color: var(--text-muted);
+      transition: var(--transition);
+      letter-spacing: 0.02em;
+    }
+    .phase-tab:hover { border-color: var(--border-light); color: var(--text); }
+    .phase-tab.active {
+      border-color: var(--purple);
+      background: var(--purple-glow);
+      color: var(--purple-light);
+    }
+    .phase-tab[data-phase="p1-final"].active { border-color: var(--teal); background: var(--teal-glow); color: var(--teal-light); }
+    .phase-tab[data-phase="p2-mid"].active   { border-color: var(--coral); background: var(--coral-glow); color: var(--coral-light); }
+    .phase-tab[data-phase="p2-final"].active { border-color: var(--amber); background: var(--amber-glow); color: var(--amber-light); }
+
+    /* ─────── STEPS LIST ─────── */
+    .steps-list { display: flex; flex-direction: column; gap: 16px; }
+
+    /* ─────── STEP CARD ─────── */
+    .step-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+      transition: border-color var(--transition), box-shadow var(--transition);
+    }
+    .step-card:hover { border-color: var(--border-light); }
+    .step-card.open   { border-color: var(--border-light); box-shadow: 0 8px 40px rgba(0,0,0,0.25); }
+    .step-card.done   { border-color: var(--green-dim); }
+    .step-card.done .step-header { background: rgba(74,222,128,0.04); }
+
+    .step-header {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      padding: 18px 22px;
+      cursor: pointer;
+      user-select: none;
+      transition: background var(--transition);
+    }
+    .step-header:hover { background: var(--surface2); }
+
+    .step-number {
+      width: 40px; height: 40px;
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 0.9rem;
+      font-weight: 800;
+      flex-shrink: 0;
+      transition: var(--transition);
+    }
+
+    .step-meta { flex: 1; min-width: 0; }
+    .step-title {
+      font-size: 1rem;
+      font-weight: 700;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      transition: color var(--transition);
+    }
+    .step-subtitle {
+      font-size: 0.78rem;
+      color: var(--text-muted);
+      margin-top: 3px;
+    }
+
+    .step-badges {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+    .badge {
+      padding: 3px 10px;
+      border-radius: 50px;
+      font-size: 0.68rem;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+    }
+    .badge-time {
+      background: rgba(255,255,255,0.06);
+      color: var(--text-muted);
+      border: 1px solid var(--border);
+    }
+    .step-progress-mini {
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: var(--text-muted);
+    }
+    .step-chevron {
+      width: 20px; height: 20px;
+      color: var(--text-faint);
+      flex-shrink: 0;
+      transition: transform var(--transition), color var(--transition);
+    }
+    .step-card.open .step-chevron { transform: rotate(180deg); color: var(--text-muted); }
+
+    /* ─────── STEP BODY ─────── */
+    .step-body {
+      max-height: 0;
+      overflow: hidden;
+      transition: max-height 0.42s cubic-bezier(0.4,0,0.2,1);
+    }
+    .step-card.open .step-body { max-height: 4000px; }
+    .step-body-inner {
+      padding: 0 22px 22px;
+      border-top: 1px solid var(--border);
+    }
+
+    /* ─────── SECTIONS INSIDE BODY ─────── */
+    .section-label {
+      font-size: 0.65rem;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--text-faint);
+      margin: 20px 0 10px;
+    }
+
+    /* ─────── TASKS ─────── */
+    .task-list { display: flex; flex-direction: column; gap: 6px; }
+    .task-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      padding: 10px 12px;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      transition: background var(--transition);
+      border: 1px solid transparent;
+    }
+    .task-item:hover { background: var(--surface2); }
+    .task-item.checked { background: rgba(74,222,128,0.06); border-color: rgba(74,222,128,0.15); }
+
+    .task-checkbox {
+      width: 18px; height: 18px;
+      border-radius: 5px;
+      border: 1.5px solid var(--border-light);
+      flex-shrink: 0;
+      margin-top: 1px;
+      display: flex; align-items: center; justify-content: center;
+      transition: var(--transition);
+    }
+    .task-item.checked .task-checkbox {
+      background: var(--green);
+      border-color: var(--green);
+    }
+    .task-checkbox svg { display: none; }
+    .task-item.checked .task-checkbox svg { display: block; }
+
+    .task-text {
+      font-size: 0.875rem;
+      line-height: 1.5;
+      color: var(--text);
+      transition: color var(--transition);
+    }
+    .task-item.checked .task-text {
+      color: var(--text-muted);
+      text-decoration: line-through;
+      text-decoration-color: var(--text-faint);
+    }
+    .task-tag {
+      display: inline-block;
+      padding: 1px 7px;
+      border-radius: 4px;
+      font-size: 0.65rem;
+      font-weight: 700;
+      margin-left: 6px;
+      vertical-align: middle;
+    }
+
+    /* ─────── CODE BLOCK ─────── */
+    .code-block-wrap {
+      border-radius: var(--radius-sm);
+      overflow: hidden;
+      border: 1px solid var(--border);
+      margin-top: 6px;
+    }
+    .code-block-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 7px 14px;
+      background: var(--bg3);
+      border-bottom: 1px solid var(--border);
+    }
+    .code-lang {
+      font-size: 0.65rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+    }
+    .code-copy-btn {
+      background: none;
+      border: none;
+      color: var(--text-faint);
+      font-size: 0.72rem;
+      cursor: pointer;
+      padding: 2px 6px;
+      border-radius: 4px;
+      transition: var(--transition);
+      font-family: inherit;
+      display: flex; align-items: center; gap: 4px;
+    }
+    .code-copy-btn:hover { color: var(--text); background: var(--surface2); }
+    .code-copy-btn.copied { color: var(--green); }
+    pre.code-content {
+      background: var(--bg2);
+      padding: 14px 16px;
+      overflow-x: auto;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.8rem;
+      line-height: 1.65;
+      color: #c5d0f0;
+    }
+    pre.code-content .kw  { color: #c792ea; }
+    pre.code-content .str { color: #c3e88d; }
+    pre.code-content .cm  { color: #546e7a; font-style: italic; }
+    pre.code-content .fn  { color: #82aaff; }
+    pre.code-content .var { color: #f78c6c; }
+    pre.code-content .num { color: #f78c6c; }
+    pre.code-content .tp  { color: #ffcb6b; }
+
+    /* ─────── INFO CARD ─────── */
+    .info-card {
+      border-radius: var(--radius-sm);
+      padding: 12px 14px;
+      font-size: 0.82rem;
+      line-height: 1.55;
+      display: flex;
+      gap: 10px;
+      margin-top: 6px;
+    }
+    .info-card.note   { background: rgba(96,165,250,0.08); border: 1px solid rgba(96,165,250,0.2); color: var(--blue-light); }
+    .info-card.warn   { background: rgba(251,191,36,0.08); border: 1px solid rgba(251,191,36,0.2); color: var(--amber-light); }
+    .info-card.gpu    { background: rgba(124,106,247,0.08); border: 1px solid rgba(124,106,247,0.2); color: var(--purple-light); }
+    .info-card.success{ background: rgba(74,222,128,0.08); border: 1px solid rgba(74,222,128,0.2); color: var(--green-light); }
+    .info-card-icon { font-size: 1rem; flex-shrink: 0; margin-top: 1px; }
+
+    /* ─────── FILE TREE ─────── */
+    .file-tree {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 12px 16px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.78rem;
+      line-height: 1.7;
+      color: #c5d0f0;
+    }
+    .file-tree .dir  { color: var(--blue-light); }
+    .file-tree .file-py  { color: var(--green-light); }
+    .file-tree .file-js  { color: var(--amber-light); }
+    .file-tree .file-env { color: var(--coral-light); }
+    .file-tree .comment  { color: var(--text-faint); }
+
+    /* ─────── STEP COLORS ─────── */
+    /* Step 1 – purple */
+    .step-card[data-step="1"] .step-number { background: var(--purple-glow); color: var(--purple-light); border: 1.5px solid var(--purple-dim); }
+    .step-card[data-step="1"].open .step-title { color: var(--purple-light); }
+    .step-card[data-step="1"] .step-body-inner { border-top-color: var(--purple-dim); }
+    /* Step 2 – teal */
+    .step-card[data-step="2"] .step-number { background: var(--teal-glow); color: var(--teal-light); border: 1.5px solid var(--teal-dim); }
+    .step-card[data-step="2"].open .step-title { color: var(--teal-light); }
+    .step-card[data-step="2"] .step-body-inner { border-top-color: var(--teal-dim); }
+    /* Step 3 – coral */
+    .step-card[data-step="3"] .step-number { background: var(--coral-glow); color: var(--coral-light); border: 1.5px solid var(--coral-dim); }
+    .step-card[data-step="3"].open .step-title { color: var(--coral-light); }
+    .step-card[data-step="3"] .step-body-inner { border-top-color: var(--coral-dim); }
+    /* Step 4 – amber */
+    .step-card[data-step="4"] .step-number { background: var(--amber-glow); color: var(--amber-light); border: 1.5px solid var(--amber-dim); }
+    .step-card[data-step="4"].open .step-title { color: var(--amber-light); }
+    .step-card[data-step="4"] .step-body-inner { border-top-color: var(--amber-dim); }
+    /* Step 5 – blue */
+    .step-card[data-step="5"] .step-number { background: rgba(96,165,250,0.12); color: var(--blue-light); border: 1.5px solid var(--blue-dim); }
+    .step-card[data-step="5"].open .step-title { color: var(--blue-light); }
+    .step-card[data-step="5"] .step-body-inner { border-top-color: var(--blue-dim); }
+    /* Step 6 – green */
+    .step-card[data-step="6"] .step-number { background: var(--green-glow); color: var(--green-light); border: 1.5px solid var(--green-dim); }
+    .step-card[data-step="6"].open .step-title { color: var(--green-light); }
+    .step-card[data-step="6"] .step-body-inner { border-top-color: var(--green-dim); }
+
+    /* done checkmark overlay */
+    .step-card.done .step-number::after {
+      content: '✓';
+      position: absolute;
+      font-size: 1rem;
+      color: var(--green);
+    }
+    .step-card.done .step-number { position: relative; }
+
+    /* phase pill */
+    .phase-pill {
+      font-size: 0.62rem;
+      font-weight: 700;
+      padding: 2px 8px;
+      border-radius: 50px;
+      letter-spacing: 0.07em;
+      text-transform: uppercase;
+    }
+    .phase-p1m { background: var(--purple-glow); color: var(--purple-light); border: 1px solid var(--purple-dim); }
+
+    /* ─────── SCROLL TOP ─────── */
+    #scrollTopBtn {
+      position: fixed; bottom: 32px; right: 28px;
+      width: 42px; height: 42px;
+      background: var(--surface);
+      border: 1px solid var(--border-light);
+      border-radius: 50%;
+      color: var(--text-muted);
+      cursor: pointer;
+      display: none;
+      align-items: center; justify-content: center;
+      font-size: 1.1rem;
+      transition: var(--transition);
+      z-index: 100;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+    }
+    #scrollTopBtn:hover { color: var(--text); background: var(--surface2); border-color: var(--purple); }
+    #scrollTopBtn.show { display: flex; }
+
+    /* ─────── RESPONSIVE ─────── */
+    @media (max-width: 600px) {
+      .page-wrap { padding: 24px 14px 60px; }
+      .overall-progress { flex-direction: column; align-items: flex-start; gap: 16px; }
+      .step-badges .badge-time { display: none; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="page-wrap">
+
+  <!-- HEADER -->
+  <header class="header">
+    <div class="header-badge">
+      <span>♟️</span> CheckMate AI — P1 Mid Sprint
+    </div>
+    <h1>Interactive Build Guide</h1>
+    <p>Step-by-step working guide from environment to a fully tested FastAPI + React prototype. Check off tasks as you go.</p>
+  </header>
+
+  <!-- OVERALL PROGRESS -->
+  <div class="overall-progress">
+    <div class="progress-ring-wrap">
+      <svg width="80" height="80" viewBox="0 0 80 80">
+        <defs>
+          <linearGradient id="ringGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+            <stop offset="0%" stop-color="#7c6af7"/>
+            <stop offset="100%" stop-color="#2dd4aa"/>
+          </linearGradient>
+        </defs>
+        <circle class="progress-ring-track" cx="40" cy="40" r="32"/>
+        <circle class="progress-ring-fill" id="ringFill" cx="40" cy="40" r="32"
+          stroke-dasharray="201.06"
+          stroke-dashoffset="201.06"/>
+      </svg>
+      <div class="progress-ring-label">
+        <span class="progress-ring-pct" id="pctLabel">0%</span>
+        <span class="progress-ring-sub">done</span>
+      </div>
+    </div>
+    <div class="progress-info">
+      <h3>Overall progress — <span id="doneCount">0</span> / <span id="totalCount">0</span> tasks</h3>
+      <p>Track your build progress across all 6 steps. Click any task checkbox to mark it complete.</p>
+      <div class="progress-bar-wrap">
+        <div class="progress-bar-bg">
+          <div class="progress-bar-fill" id="progressBar" style="width:0%"></div>
+        </div>
+        <div class="progress-bar-legend">
+          <span class="legend-item"><span class="legend-dot" style="background:var(--green)"></span>Completed</span>
+          <span class="legend-item"><span class="legend-dot" style="background:var(--border)"></span>Remaining</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- PHASE TABS -->
+  <div class="phase-tabs" id="phaseTabs">
+    <button class="phase-tab active" data-phase="all">All Steps</button>
+    <button class="phase-tab" data-phase="p1-mid">P1 Mid</button>
+  </div>
+
+  <!-- STEPS -->
+  <div class="steps-list" id="stepsList"></div>
+
+</div>
+
+<button id="scrollTopBtn" title="Back to top">↑</button>
+
+<script>
+// ══════════════════════════════════════════════════════════════
+// DATA
+// ══════════════════════════════════════════════════════════════
+const STEPS = [
+  {
+    id: 1,
+    phase: 'p1-mid',
+    title: 'Environment Setup',
+    subtitle: 'Conda env · GPU check · core packages',
+    time: '~30 min',
+    color: 'purple',
+    sections: [
+      {
+        label: 'Tasks',
+        type: 'tasks',
+        items: [
+          { id: 't1-1', text: 'Activate checkmate-ai conda environment' },
+          { id: 't1-2', text: 'Install Python 3.10 (already present in env)', tag: '✓ done', tagColor: '#4ade80' },
+          { id: 't1-3', text: 'Install FastAPI, Uvicorn, and core server deps' },
+          { id: 't1-4', text: 'Install python-jose, passlib, python-multipart (for auth & uploads)' },
+          { id: 't1-5', text: 'Install PyTorch with CUDA 12.1 support (GPU)', tag: 'GPU', tagColor: '#7c6af7' },
+          { id: 't1-6', text: 'Install PyMongo + motor (async MongoDB driver)' },
+          { id: 't1-7', text: 'Install Node.js / npm for React frontend tooling' },
+          { id: 't1-8', text: 'Install python-docx for document parsing' },
+          { id: 't1-9', text: 'Verify GPU is detected (torch.cuda.is_available())' },
+          { id: 't1-10', text: 'Set up .env file with MongoDB URI and JWT_SECRET' },
+          { id: 't1-11', text: 'Create project folder structure (backend/ frontend/ uploads/)' },
+        ]
+      },
+      {
+        label: 'Install commands',
+        type: 'code',
+        lang: 'bash',
+        code: `# ── Activate env ──────────────────────────────────────
+conda activate checkmate-ai
+
+# ── Core API deps ─────────────────────────────────────
+pip install fastapi uvicorn[standard] python-dotenv
+
+# ── Auth & uploads ────────────────────────────────────
+pip install python-jose[cryptography] passlib[bcrypt] python-multipart
+
+# ── MongoDB (sync + async) ────────────────────────────
+pip install pymongo motor
+
+# ── Document parsing ──────────────────────────────────
+pip install python-docx Pillow
+
+# ── PyTorch CUDA 12.1 (GPU) ───────────────────────────
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+
+# ── Verify GPU ────────────────────────────────────────
+python -c "import torch; print('CUDA:', torch.cuda.is_available(), '|', torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'No GPU')"`,
+      },
+      {
+        label: 'GPU note',
+        type: 'info',
+        variant: 'gpu',
+        icon: '⚡',
+        text: 'Make sure you have CUDA 12.1 drivers installed. If you have a different CUDA version, change cu121 to match (e.g. cu118 for CUDA 11.8). Run <code>nvidia-smi</code> to check your driver version.'
+      },
+      {
+        label: 'Project folder structure',
+        type: 'filetree',
+        content: `checkmate-ai/
+├── backend/
+│   ├── <span class="file-py">main.py</span>          <span class="comment"># FastAPI app entry point</span>
+│   ├── <span class="file-py">database.py</span>      <span class="comment"># MongoDB connection</span>
+│   ├── models/
+│   │   ├── <span class="file-py">user.py</span>      <span class="comment"># Pydantic user schema</span>
+│   │   └── <span class="file-py">exam.py</span>      <span class="comment"># Exam upload schema</span>
+│   ├── routers/
+│   │   ├── <span class="file-py">auth.py</span>      <span class="comment"># Register, login, JWT</span>
+│   │   └── <span class="file-py">upload.py</span>    <span class="comment"># File upload endpoint</span>
+│   ├── core/
+│   │   └── <span class="file-py">security.py</span>  <span class="comment"># JWT helpers</span>
+│   └── <span class="file-env">.env</span>             <span class="comment"># MONGO_URI, JWT_SECRET</span>
+├── <span class="dir">frontend/</span>
+│   └── <span class="comment"># React app (created in Step 5)</span>
+└── <span class="dir">uploads/</span>           <span class="comment"># Stored exam files</span>`
+      }
+    ]
+  },
+
+  {
+    id: 2,
+    phase: 'p1-mid',
+    title: 'FastAPI Skeleton + MongoDB',
+    subtitle: 'main.py · database.py · project scaffold',
+    time: '~1 hr',
+    color: 'teal',
+    sections: [
+      {
+        label: 'Tasks',
+        type: 'tasks',
+        items: [
+          { id: 't2-1', text: 'Create backend/main.py as FastAPI entry point' },
+          { id: 't2-2', text: 'Create backend/database.py with async MongoDB connection (Motor)' },
+          { id: 't2-3', text: 'Create Pydantic models for User and Exam schemas' },
+          { id: 't2-4', text: 'Register router placeholders for /auth and /uploads' },
+          { id: 't2-5', text: 'Add CORS middleware for React frontend' },
+          { id: 't2-6', text: 'Load MONGO_URI from .env and test connection on startup' },
+          { id: 't2-7', text: 'Run uvicorn and verify http://localhost:8000/docs loads' },
+        ]
+      },
+      {
+        label: 'backend/database.py',
+        type: 'code',
+        lang: 'python',
+        code: `from motor.motor_asyncio import AsyncIOMotorClient
+from dotenv import load_dotenv
+import os
+
+load_dotenv()
+MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017")
+DATABASE_NAME = "checkmate_ai"
+
+client: AsyncIOMotorClient = None
+db = None
+
+async def connect_db():
+    global client, db
+    client = AsyncIOMotorClient(MONGO_URI)
+    db = client[DATABASE_NAME]
+    print("✅ MongoDB connected")
+
+async def close_db():
+    if client:
+        client.close()`,
+      },
+      {
+        label: 'backend/main.py',
+        type: 'code',
+        lang: 'python',
+        code: `from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from database import connect_db, close_db
+
+app = FastAPI(title="CheckMate AI", version="1.0.0")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173"],  # Vite dev server
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+@app.on_event("startup")
+async def startup(): await connect_db()
+
+@app.on_event("shutdown")
+async def shutdown(): await close_db()
+
+@app.get("/")
+async def root():
+    return {"status": "ok", "project": "CheckMate AI"}`,
+      },
+      {
+        label: 'Run the server',
+        type: 'code',
+        lang: 'bash',
+        code: `cd backend
+uvicorn main:app --reload --host 0.0.0.0 --port 8000
+# → Open http://localhost:8000/docs`,
+      },
+      {
+        label: 'Note',
+        type: 'info',
+        variant: 'note',
+        icon: 'ℹ️',
+        text: 'Do NOT use pymongo directly in async endpoints — always use motor (async driver). This is critical to avoid blocking the event loop.'
+      }
+    ]
+  },
+
+  {
+    id: 3,
+    phase: 'p1-mid',
+    title: 'Auth System — Register, Login, JWT, Roles',
+    subtitle: 'JWT tokens · password hashing · role-based routes',
+    time: '~2 hrs',
+    color: 'coral',
+    sections: [
+      {
+        label: 'Tasks',
+        type: 'tasks',
+        items: [
+          { id: 't3-1', text: 'Create core/security.py — JWT create/verify helpers' },
+          { id: 't3-2', text: 'Create Pydantic UserCreate and UserLogin schemas' },
+          { id: 't3-3', text: 'Implement POST /auth/register — hash password, save to MongoDB' },
+          { id: 't3-4', text: 'Implement POST /auth/login — verify password, return JWT' },
+          { id: 't3-5', text: 'Implement GET /auth/me — returns current user info from token' },
+          { id: 't3-6', text: 'Add role field ("teacher" | "student") in user document' },
+          { id: 't3-7', text: 'Create get_current_user() dependency for protected routes' },
+          { id: 't3-8', text: 'Test all auth endpoints in Swagger UI' },
+        ]
+      },
+      {
+        label: 'core/security.py',
+        type: 'code',
+        lang: 'python',
+        code: `from jose import JWTError, jwt
+from passlib.context import CryptContext
+from datetime import datetime, timedelta
+import os
+
+SECRET_KEY = os.getenv("JWT_SECRET", "changeme")
+ALGORITHM  = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24  # 24 hours
+
+pwd_ctx = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+def hash_password(plain: str) -> str:
+    return pwd_ctx.hash(plain)
+
+def verify_password(plain: str, hashed: str) -> bool:
+    return pwd_ctx.verify(plain, hashed)
+
+def create_access_token(data: dict) -> str:
+    to_encode = data.copy()
+    to_encode["exp"] = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+
+def decode_token(token: str) -> dict:
+    return jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])`,
+      },
+      {
+        label: 'routers/auth.py — key endpoints',
+        type: 'code',
+        lang: 'python',
+        code: `POST /auth/register
+  body: { name, email, password, role: "teacher"|"student" }
+  → hashes password, saves to MongoDB, returns JWT
+
+POST /auth/login
+  body: { email, password }
+  → verifies hash, returns JWT with role claim
+
+GET  /auth/me
+  header: Authorization: Bearer <token>
+  → returns current user info`,
+      },
+      {
+        label: 'JWT payload',
+        type: 'info',
+        variant: 'warn',
+        icon: '⚠️',
+        text: 'JWT payload should include user_id, role, and exp. Protect routes with a get_current_user dependency that decodes the token and checks the role. Never store passwords in the token.'
+      }
+    ]
+  },
+
+  {
+    id: 4,
+    phase: 'p1-mid',
+    title: 'File Upload Endpoint',
+    subtitle: 'PDF/PNG exam upload · validation · store in MongoDB',
+    time: '~1 hr',
+    color: 'amber',
+    sections: [
+      {
+        label: 'Tasks',
+        type: 'tasks',
+        items: [
+          { id: 't4-1', text: 'Create routers/upload.py with POST /upload/exam' },
+          { id: 't4-2', text: 'Require JWT auth — teacher role only' },
+          { id: 't4-3', text: 'Accept multipart/form-data: file (PDF/PNG) + exam_title (str) + total_marks (int)' },
+          { id: 't4-4', text: 'Validate file type (PDF or image) and max size ≤ 32MB' },
+          { id: 't4-5', text: 'Save file to ./uploads/<exam_id>/<original_filename>' },
+          { id: 't4-6', text: 'Create exam record in MongoDB with status: "uploaded"' },
+          { id: 't4-7', text: 'Return { exam_id, status } in response' },
+          { id: 't4-8', text: 'Test upload with Postman or curl' },
+        ]
+      },
+      {
+        label: 'Endpoint spec',
+        type: 'code',
+        lang: 'python',
+        code: `# POST /upload/exam
+# Authorization: Bearer <teacher_token>
+# Content-Type: multipart/form-data
+#
+# Fields:
+#   file       → PDF or Image (JPG/PNG)
+#   exam_title → string
+#   total_marks → int
+#
+# Validates:
+#   - file type in ["application/pdf", "image/jpeg", "image/png"]
+#   - file size ≤ 32MB
+#   - Creates exam record in MongoDB
+#
+# Returns: { exam_id, status: "uploaded" }`,
+      },
+      {
+        label: 'Storage path',
+        type: 'info',
+        variant: 'note',
+        icon: 'ℹ️',
+        text: 'Store files in ./uploads/{exam_id}/{filename}. Use pathlib.Path for cross-platform paths — simple and works perfectly locally.'
+      },
+      {
+        label: 'Test with curl',
+        type: 'code',
+        lang: 'bash',
+        code: `curl -X POST http://localhost:8000/upload/exam \\
+  -H "Authorization: Bearer <your_token>" \\
+  -F "file=@exam_paper.pdf" \\
+  -F "exam_title=CS101 Final" \\
+  -F "total_marks=100"`,
+      }
+    ]
+  },
+
+  {
+    id: 5,
+    phase: 'p1-mid',
+    title: 'React Frontend — Login + Dashboards',
+    subtitle: 'Vite + React · Auth context · Teacher & Student views',
+    time: '~3 hrs',
+    color: 'blue',
+    sections: [
+      {
+        label: 'Tasks',
+        type: 'tasks',
+        items: [
+          { id: 't5-1', text: 'Scaffold React app with Vite in frontend/ directory' },
+          { id: 't5-2', text: 'Install axios + react-router-dom + react-query' },
+          { id: 't5-3', text: 'Install tailwindcss + shadcn/ui (or plain CSS — your choice)' },
+          { id: 't5-4', text: 'Build Login page — email + password form, stores JWT in localStorage' },
+          { id: 't5-5', text: 'Create AuthContext — stores JWT + user role, protects routes' },
+          { id: 't5-6', text: 'Build Teacher dashboard — upload exam form, view results list' },
+          { id: 't5-7', text: 'Build Student dashboard — view submitted exams, see feedback' },
+          { id: 't5-8', text: 'Add React Router redirect for unauthenticated users → /login' },
+          { id: 't5-9', text: 'Connect all pages to FastAPI backend via axios' },
+          { id: 't5-10', text: 'Test login flow end-to-end in browser' },
+        ]
+      },
+      {
+        label: 'Bootstrap Vite + React',
+        type: 'code',
+        lang: 'bash',
+        code: `cd checkmate-ai
+npm create vite@latest frontend -- --template react
+cd frontend
+npm install
+npm install axios react-router-dom @tanstack/react-query
+npm run dev
+# → http://localhost:5173`,
+      },
+      {
+        label: 'AuthContext skeleton',
+        type: 'code',
+        lang: 'javascript',
+        code: `// src/context/AuthContext.jsx
+import { createContext, useContext, useState } from 'react'
+
+const AuthCtx = createContext(null)
+
+export function AuthProvider({ children }) {
+  const [token,   setToken]   = useState(localStorage.getItem('token'))
+  const [role,    setRole]    = useState(localStorage.getItem('role'))
+
+  const login = (jwt, userRole) => {
+    localStorage.setItem('token', jwt)
+    localStorage.setItem('role',  userRole)
+    setToken(jwt); setRole(userRole)
+  }
+  const logout = () => {
+    localStorage.clear(); setToken(null); setRole(null)
+  }
+  return (
+    <AuthCtx.Provider value={{ token, role, login, logout }}>
+      {children}
+    </AuthCtx.Provider>
+  )
+}
+export const useAuth = () => useContext(AuthCtx)`,
+      },
+      {
+        label: 'Pages to build',
+        type: 'info',
+        variant: 'note',
+        icon: '📋',
+        text: '<b>/login</b> → email/password form, stores JWT in context | <b>/teacher</b> → upload exam, view results | <b>/student</b> → view submitted exams, see feedback'
+      }
+    ]
+  },
+
+  {
+    id: 6,
+    phase: 'p1-mid',
+    title: 'End-to-End Test Before P1 Final',
+    subtitle: 'Full-stack verification · API tests · role access checks',
+    time: '~1 hr',
+    color: 'green',
+    sections: [
+      {
+        label: 'Test checklist',
+        type: 'tasks',
+        items: [
+          { id: 't6-1',  text: 'Register a teacher account → JWT returned' },
+          { id: 't6-2',  text: 'Register a student account → JWT returned' },
+          { id: 't6-3',  text: 'Teacher login → redirected to /teacher dashboard' },
+          { id: 't6-4',  text: 'Student login → redirected to /student dashboard' },
+          { id: 't6-5',  text: 'Teacher uploads a PDF → saved to /uploads/ with DB record' },
+          { id: 't6-6',  text: 'Exam record appears in MongoDB with correct status' },
+          { id: 't6-7',  text: 'Student cannot access /teacher (role guard works)' },
+          { id: 't6-8',  text: 'Invalid JWT returns 401' },
+          { id: 't6-9',  text: 'All API responses validate against Pydantic schemas' },
+          { id: 't6-10', text: 'Run pytest suite — all tests green' },
+        ]
+      },
+      {
+        label: 'Write API tests (pytest)',
+        type: 'code',
+        lang: 'bash',
+        code: `pip install pytest httpx
+
+# Run all tests
+pytest backend/tests/ -v
+
+# Or test with VS Code or httpx from CLI
+python -m pytest backend/tests/test_auth.py -v`,
+      },
+      {
+        label: 'Quick API smoke test',
+        type: 'code',
+        lang: 'python',
+        code: `# backend/tests/test_auth.py
+from httpx import AsyncClient
+import pytest, asyncio
+from main import app
+
+@pytest.mark.asyncio
+async def test_register_teacher():
+    async with AsyncClient(app=app, base_url="http://test") as ac:
+        resp = await ac.post("/auth/register", json={
+            "name": "Prof Smith", "email": "prof@test.com",
+            "password": "secret123", "role": "teacher"
+        })
+    assert resp.status_code == 200
+    assert "access_token" in resp.json()`,
+      },
+      {
+        label: '🎉 P1 Mid complete!',
+        type: 'info',
+        variant: 'success',
+        icon: '🚀',
+        text: 'Once all 6 steps are green, you have a working full-stack skeleton: FastAPI backend, MongoDB, JWT auth, file upload, and React frontend ready for P1 Final features (OCR, language detection, code extraction).'
+      }
+    ]
+  }
+]
+
+// ══════════════════════════════════════════════════════════════
+// STATE
+// ══════════════════════════════════════════════════════════════
+const STATE_KEY = 'checkmate_guide_state'
+let state = {}
+try { state = JSON.parse(localStorage.getItem(STATE_KEY) || '{}') } catch(e) {}
+
+function saveState() { localStorage.setItem(STATE_KEY, JSON.stringify(state)) }
+
+// ══════════════════════════════════════════════════════════════
+// RENDER
+// ══════════════════════════════════════════════════════════════
+function renderCode(block) {
+  return `
+    <div class="code-block-wrap">
+      <div class="code-block-head">
+        <span class="code-lang">${block.lang}</span>
+        <button class="code-copy-btn" onclick="copyCode(this)">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+          Copy
+        </button>
+      </div>
+      <pre class="code-content">${escapeHtml(block.code)}</pre>
+    </div>`
+}
+
+function renderSection(s, stepId) {
+  if (s.type === 'tasks') {
+    return `
+      <div class="section-label">${s.label}</div>
+      <div class="task-list">
+        ${s.items.map(task => {
+          const checked = !!state[task.id]
+          const tagHtml = task.tag ? `<span class="task-tag" style="background:${task.tagColor}22;color:${task.tagColor};border:1px solid ${task.tagColor}44">${task.tag}</span>` : ''
+          return `
+            <div class="task-item${checked ? ' checked' : ''}" data-task="${task.id}" onclick="toggleTask('${task.id}', this)">
+              <div class="task-checkbox">
+                <svg width="11" height="9" viewBox="0 0 11 9" fill="none">
+                  <path d="M1 4.5L4 7.5L10 1" stroke="#0b0e1a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+              </div>
+              <span class="task-text">${task.text}${tagHtml}</span>
+            </div>`
+        }).join('')}
+      </div>`
+  }
+  if (s.type === 'code') {
+    return `
+      <div class="section-label">${s.label}</div>
+      ${renderCode(s)}`
+  }
+  if (s.type === 'info') {
+    return `
+      <div class="section-label">${s.label}</div>
+      <div class="info-card ${s.variant}">
+        <span class="info-card-icon">${s.icon}</span>
+        <span>${s.text}</span>
+      </div>`
+  }
+  if (s.type === 'filetree') {
+    return `
+      <div class="section-label">${s.label}</div>
+      <div class="file-tree">${s.content}</div>`
+  }
+  return ''
+}
+
+function getTaskCount(step) {
+  const tasks = step.sections.filter(s => s.type === 'tasks').flatMap(s => s.items)
+  const total = tasks.length
+  const done  = tasks.filter(t => state[t.id]).length
+  return { total, done }
+}
+
+function renderStep(step) {
+  const { total, done } = getTaskCount(step)
+  const open = !!state[`open_${step.id}`]
+  const allDone = total > 0 && done === total
+
+  return `
+    <div class="step-card${open ? ' open' : ''}${allDone ? ' done' : ''}" data-step="${step.id}" id="step-card-${step.id}">
+      <div class="step-header" onclick="toggleStep(${step.id})">
+        <div class="step-number">${step.id}</div>
+        <div class="step-meta">
+          <div class="step-title">${step.title}</div>
+          <div class="step-subtitle">${step.subtitle}</div>
+        </div>
+        <div class="step-badges">
+          <span class="badge badge-time">${step.time}</span>
+          <span class="step-progress-mini" id="step-prog-${step.id}">${done}/${total}</span>
+        </div>
+        <svg class="step-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="6 9 12 15 18 9"/>
+        </svg>
+      </div>
+      <div class="step-body">
+        <div class="step-body-inner">
+          ${step.sections.map(s => renderSection(s, step.id)).join('')}
+        </div>
+      </div>
+    </div>`
+}
+
+function renderAll() {
+  const list = document.getElementById('stepsList')
+  list.innerHTML = STEPS.map(renderStep).join('')
+  updateProgress()
+}
+
+// ══════════════════════════════════════════════════════════════
+// INTERACTIONS
+// ══════════════════════════════════════════════════════════════
+function toggleStep(stepId) {
+  const key = `open_${stepId}`
+  state[key] = !state[key]
+  saveState()
+  const card = document.getElementById(`step-card-${stepId}`)
+  card.classList.toggle('open', !!state[key])
+}
+
+function toggleTask(taskId, el) {
+  state[taskId] = !state[taskId]
+  saveState()
+  el.classList.toggle('checked', !!state[taskId])
+  // update step progress mini
+  const card = el.closest('.step-card')
+  const stepId = parseInt(card.dataset.step)
+  const step = STEPS.find(s => s.id === stepId)
+  const { total, done } = getTaskCount(step)
+  card.querySelector(`#step-prog-${stepId}`).textContent = `${done}/${total}`
+  const allDone = total > 0 && done === total
+  card.classList.toggle('done', allDone)
+  updateProgress()
+}
+
+function escapeHtml(str) {
+  return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+}
+
+function copyCode(btn) {
+  const pre = btn.closest('.code-block-wrap').querySelector('pre')
+  navigator.clipboard.writeText(pre.innerText).then(() => {
+    btn.textContent = '✓ Copied!'
+    btn.classList.add('copied')
+    setTimeout(() => { btn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg> Copy'; btn.classList.remove('copied') }, 2000)
+  })
+}
+
+function updateProgress() {
+  const allTasks = STEPS.flatMap(s => s.sections.filter(sec => sec.type === 'tasks').flatMap(sec => sec.items))
+  const total = allTasks.length
+  const done  = allTasks.filter(t => state[t.id]).length
+  const pct   = total ? Math.round((done / total) * 100) : 0
+
+  document.getElementById('doneCount').textContent  = done
+  document.getElementById('totalCount').textContent = total
+  document.getElementById('pctLabel').textContent   = pct + '%'
+  document.getElementById('progressBar').style.width = pct + '%'
+
+  // ring
+  const circ = 2 * Math.PI * 32
+  const fill = circ * (1 - pct/100)
+  document.getElementById('ringFill').style.strokeDashoffset = fill
+}
+
+// ══════════════════════════════════════════════════════════════
+// SCROLL TOP
+// ══════════════════════════════════════════════════════════════
+const scrollBtn = document.getElementById('scrollTopBtn')
+window.addEventListener('scroll', () => {
+  scrollBtn.classList.toggle('show', window.scrollY > 300)
+})
+scrollBtn.addEventListener('click', () => window.scrollTo({ top: 0, behavior: 'smooth' }))
+
+// ══════════════════════════════════════════════════════════════
+// INIT
+// ══════════════════════════════════════════════════════════════
+renderAll()
+</script>
+</body>
+</html>

@@ -1,0 +1,85 @@
+.modal-overlay {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: var(--overlay-bg);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.modal-content {
+  width: 100%;
+  max-width: 500px;
+  background: var(--bg-secondary);
+  padding: 2.5rem;
+  position: relative;
+  animation: scaleIn 0.25s ease forwards;
+}
+
+.close-btn {
+  position: absolute;
+  top: 1.5rem;
+  right: 1.5rem;
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: color 0.2s;
+  padding: 0.25rem;
+  border-radius: 0.25rem;
+}
+
+.close-btn:hover { color: var(--danger); }
+
+.modal-subtitle {
+  color: var(--text-secondary);
+  margin-bottom: 2rem;
+  font-size: 0.95rem;
+}
+
+.drop-zone {
+  margin-top: 1.5rem;
+  border: 2px dashed var(--border-color);
+  border-radius: 0.75rem;
+  padding: 3rem 1.5rem;
+  text-align: center;
+  cursor: pointer;
+  background: var(--bg-tertiary);
+  transition: all 0.2s ease;
+}
+
+.drop-zone:hover {
+  border-color: var(--accent-primary);
+  background: var(--accent-soft);
+}
+
+.drop-zone.has-file {
+  border-color: var(--success);
+  background: var(--status-graded-bg);
+}
+
+.drop-zone.has-file p {
+  color: var(--status-graded);
+}
+
+.upload-icon {
+  color: var(--accent-primary);
+  margin-bottom: 1rem;
+}
+
+.drop-hint {
+  display: block;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  margin-top: 0.5rem;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 1rem;
+  margin-top: 2rem;
+}
