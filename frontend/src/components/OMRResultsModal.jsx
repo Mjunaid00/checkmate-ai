@@ -114,6 +114,12 @@ export default function OMRResultsModal({ template, onClose }) {
                       </td>
                       <td>
                         <span className={`status-badge status-${s.status}`}>{s.status}</span>
+                        {s.needs_review && (
+                          <span title={(s.warnings || []).concat(s.multiple_count > 0 ? [`${s.multiple_count} question(s) with several bubbles filled`] : []).join('; ') || 'Mostly blank - check the scan'}
+                            style={{ marginLeft: '0.35rem', fontSize: '0.7rem', fontWeight: 600, padding: '0.15rem 0.45rem', borderRadius: '999px', background: 'var(--status-pending-bg)', color: 'var(--warning)', cursor: 'help' }}>
+                            Review
+                          </span>
+                        )}
                       </td>
                       <td>
                         {s.score !== null && s.score !== undefined ? (
@@ -128,6 +134,9 @@ export default function OMRResultsModal({ template, onClose }) {
                             <span style={{ color: 'var(--success)' }}><CheckCircle size={11} style={{ verticalAlign: 'middle' }} /> {s.correct_count}</span>
                             <span style={{ color: 'var(--danger)' }}><XCircle size={11} style={{ verticalAlign: 'middle' }} /> {s.incorrect_count}</span>
                             <span style={{ color: 'var(--text-secondary)' }}><MinusCircle size={11} style={{ verticalAlign: 'middle' }} /> {s.blank_count}</span>
+                            {s.multiple_count > 0 && (
+                              <span style={{ color: 'var(--warning)' }} title="Questions with more than one bubble filled">⚠ {s.multiple_count}</span>
+                            )}
                           </div>
                         )}
                         {s.status === 'failed' && (
@@ -202,18 +211,19 @@ function AnswerBreakdown({ detected, answerKey, sheetType, optionsPerQuestion })
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(75px, 1fr))', gap: '0.4rem' }}>
         {detected.map((d, qi) => {
           const correct = answerKey[qi];
+          const isMultiple = d === -2;
           const isBlank = d === -1;
-          const isCorrect = !isBlank && d === correct;
+          const isCorrect = !isBlank && !isMultiple && d === correct;
           return (
             <div key={qi} style={{
               padding: '0.45rem 0.5rem', borderRadius: '0.4rem',
               border: '1px solid var(--border-color)',
-              background: isBlank ? 'var(--bg-secondary)' : isCorrect ? 'var(--status-graded-bg)' : 'var(--status-failed-bg)',
+              background: isMultiple ? 'var(--status-pending-bg)' : isBlank ? 'var(--bg-secondary)' : isCorrect ? 'var(--status-graded-bg)' : 'var(--status-failed-bg)',
               textAlign: 'center',
             }}>
               <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', fontWeight: 600 }}>Q{qi + 1}</div>
-              <div style={{ fontSize: '0.85rem', fontWeight: 700, color: isBlank ? 'var(--text-muted)' : isCorrect ? 'var(--status-graded)' : 'var(--status-failed)' }}>
-                {isBlank ? '—' : labels[d]}
+              <div style={{ fontSize: '0.85rem', fontWeight: 700, color: isMultiple ? 'var(--warning)' : isBlank ? 'var(--text-muted)' : isCorrect ? 'var(--status-graded)' : 'var(--status-failed)' }} title={isMultiple ? 'Several bubbles filled' : undefined}>
+                {isMultiple ? '⚠' : isBlank ? '—' : labels[d]}
               </div>
               {!isCorrect && !isBlank && (
                 <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)' }}>

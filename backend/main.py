@@ -21,7 +21,7 @@ import config  # loads backend/.env first, regardless of the working directory
 from database import connect_db, close_db, get_db, ping as db_ping, ensure_indexes
 from routers import (
     auth, dashboard, classes, assignments, submissions, enrollment, analytics,
-    reports, quizzes, messages, notifications, omr, admin,
+    reports, quizzes, messages, notifications, omr, admin, audit,
 )
 from routers.admin import ensure_admin_bootstrap
 
@@ -83,6 +83,7 @@ app.include_router(messages.router)
 app.include_router(notifications.router)
 app.include_router(omr.router)
 app.include_router(admin.router)
+app.include_router(audit.router)
 
 
 # ── Root / health ────────────────────────────────────────────────────────────

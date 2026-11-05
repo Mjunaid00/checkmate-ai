@@ -25,10 +25,10 @@ export default function ClassReportModal({ classData, onClose }) {
     }
   };
 
-  const downloadFile = async (url, filename) => {
+  const downloadFile = async (url, filename, mime = 'text/csv') => {
     try {
       const res = await api.get(url, { responseType: 'blob' });
-      const blob = new Blob([res.data], { type: 'text/csv' });
+      const blob = new Blob([res.data], { type: mime });
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
       a.download = filename;
@@ -39,14 +39,17 @@ export default function ClassReportModal({ classData, onClose }) {
     }
   };
 
-  const downloadClassReport = () => {
-    downloadFile(`/reports/class/${classData.class_id}/csv`, `${classData.name}_report.csv`);
+  const XLSX = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+
+  const downloadClassReport = (ext = 'csv') => {
+    downloadFile(`/reports/class/${classData.class_id}/${ext}`, `${classData.name}_report.${ext}`, ext === 'xlsx' ? XLSX : 'text/csv');
   };
 
-  const downloadStudentReport = (student) => {
+  const downloadStudentReport = (student, ext = 'csv') => {
     downloadFile(
-      `/reports/student/${student.student_id}/class/${classData.class_id}/csv`,
-      `${student.name}_${classData.name}_report.csv`
+      `/reports/student/${student.student_id}/class/${classData.class_id}/${ext}`,
+      `${student.name}_${classData.name}_report.${ext}`,
+      ext === 'xlsx' ? XLSX : 'text/csv'
     );
   };
 
@@ -94,8 +97,11 @@ export default function ClassReportModal({ classData, onClose }) {
 
         {/* ── Download All ──────────────────────────────────────── */}
         <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '1rem' }}>
-          <button className="btn-primary" onClick={downloadClassReport} style={{ fontSize: '0.85rem', padding: '0.55rem 1rem' }}>
+          <button className="btn-primary" onClick={() => downloadClassReport('csv')} style={{ fontSize: '0.85rem', padding: '0.55rem 1rem' }}>
             <Download size={15} /> Download Class CSV
+          </button>
+          <button className="btn-secondary" onClick={() => downloadClassReport('xlsx')} style={{ fontSize: '0.85rem', padding: '0.55rem 1rem', marginLeft: '0.5rem' }}>
+            <Download size={15} /> Excel
           </button>
         </div>
 
@@ -200,6 +206,7 @@ export default function ClassReportModal({ classData, onClose }) {
                 classId={classData.class_id}
                 onBack={() => setSelectedStudent(null)}
                 onDownload={() => downloadStudentReport(selectedStudent)}
+                onDownloadXlsx={() => downloadStudentReport(selectedStudent, 'xlsx')}
               />
             ) : (
               <div className="table-wrapper">
@@ -249,6 +256,14 @@ export default function ClassReportModal({ classData, onClose }) {
                             >
                               <Download size={13} />
                             </button>
+                            <button
+                              className="btn-secondary"
+                              onClick={() => downloadStudentReport(s, 'xlsx')}
+                              style={{ padding: '0.3rem 0.6rem', fontSize: '0.78rem' }}
+                              title="Download Excel"
+                            >
+                              xlsx
+                            </button>
                           </div>
                         </td>
                       </tr>
@@ -278,7 +293,7 @@ function StatTile({ icon: Icon, label, value, color }) {
   );
 }
 
-function StudentDetail({ studentId, classId, onBack, onDownload }) {
+function StudentDetail({ studentId, classId, onBack, onDownload, onDownloadXlsx }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
 
@@ -300,6 +315,9 @@ function StudentDetail({ studentId, classId, onBack, onDownload }) {
         </div>
         <button onClick={onDownload} className="btn-primary" style={{ fontSize: '0.85rem', padding: '0.5rem 0.9rem' }}>
           <Download size={14} /> Download CSV
+        </button>
+        <button onClick={onDownloadXlsx} className="btn-secondary" style={{ fontSize: '0.85rem', padding: '0.5rem 0.9rem', marginLeft: '0.5rem' }}>
+          <Download size={14} /> Excel
         </button>
       </div>
 

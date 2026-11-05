@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import Optional, Literal, List
+from typing import Optional, Literal, List, Union
 from datetime import datetime
 
 # ── Class Groups ─────────────────────────────────────────────────────────────
@@ -160,7 +160,7 @@ class QuizOut(BaseModel):
 class QuizAttemptInDB(BaseModel):
     quiz_id: str
     student_id: str
-    answers: List[int]
+    answers: List[Union[int, str]]
     score: int
     total_marks: int
     correct_count: int
@@ -180,7 +180,7 @@ class QuizAttemptOut(BaseModel):
     quiz_id: str
     student_id: str
     student_name: Optional[str] = None
-    answers: List[int]
+    answers: List[Union[int, str]]
     score: int
     total_marks: int
     correct_count: int

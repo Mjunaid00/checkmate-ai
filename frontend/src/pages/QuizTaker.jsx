@@ -96,7 +96,8 @@ export default function QuizTaker() {
 
     const originalAnswers = quiz.questions.map((q, displayIdx) => {
       const selected = answers[displayIdx];
-      if (selected === undefined || selected < 0) return -1;
+      if (q.type === 'short_answer') return typeof selected === 'string' ? selected.trim() : '';
+      if (selected === undefined || selected === null || selected < 0) return -1;
       return q._option_map[selected];
     });
 
@@ -253,7 +254,8 @@ export default function QuizTaker() {
 
   const totalQuestions = quiz.questions.length;
   const currentQ = quiz.questions[currentIdx];
-  const answeredCount = Object.values(answers).filter(v => v !== undefined && v >= 0).length;
+  const isAnsweredValue = (v) => (typeof v === 'string' ? v.trim() !== '' : (v !== undefined && v !== null && v >= 0));
+  const answeredCount = Object.values(answers).filter(isAnsweredValue).length;
 
   const m = Math.floor(timeLeft / 60);
   const s = timeLeft % 60;
@@ -311,6 +313,16 @@ export default function QuizTaker() {
         </div>
         <h3 style={{ fontSize: '1.1rem', marginBottom: '1.25rem', lineHeight: 1.5 }}>{currentQ.question_text}</h3>
 
+        {currentQ.type === 'short_answer' ? (
+          <textarea
+            className="input-field"
+            rows={3}
+            value={typeof answers[currentIdx] === 'string' ? answers[currentIdx] : ''}
+            onChange={e => setAnswers(a => ({ ...a, [currentIdx]: e.target.value }))}
+            placeholder="Type your answer"
+            style={{ resize: 'vertical', fontFamily: 'inherit', userSelect: 'text', WebkitUserSelect: 'text' }}
+          />
+        ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
           {currentQ.options.map((opt, i) => {
             const selected = answers[currentIdx] === i;
@@ -355,6 +367,7 @@ export default function QuizTaker() {
             );
           })}
         </div>
+        )}
       </div>
 
       {/* ── Navigation ──────────────────────────────────── */}
@@ -370,7 +383,7 @@ export default function QuizTaker() {
         <div style={{ display: 'flex', gap: '0.3rem', flexWrap: 'wrap', justifyContent: 'center', flex: 1, maxWidth: '400px' }}>
           {quiz.questions.map((_, i) => {
             const ans = answers[i];
-            const isAnswered = ans !== undefined && ans >= 0;
+            const isAnswered = isAnsweredValue(ans);
             const isCurrent = currentIdx === i;
             return (
               <button

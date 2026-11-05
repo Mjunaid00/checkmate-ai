@@ -18,6 +18,8 @@ from config import (
 )
 from database import get_db
 from services.student_safe import redact_keyword_analysis
+from services.audit import AuditError, record_audit
+import shutil
 from models.school import SubmissionOut
 from routers.deps import get_current_student, get_current_user, get_current_teacher
 from services.grading import process_exam_background
@@ -300,6 +302,57 @@ async def manual_grade(
 
     updated = await db["submissions"].find_one({"_id": ObjectId(submission_id)})
     return map_submission(updated)
+
+
+class AllowResubmissionBody(BaseModel):
+    reason: str
+
+
+@router.post("/{submission_id}/allow-resubmission")
+async def allow_resubmission(
+    submission_id: str,
+    body: AllowResubmissionBody,
+    current_teacher: dict = Depends(get_current_teacher),
+    db=Depends(get_db),
+):
+    """
+    Teacher override of the single-submission rule: deletes the student's submission (record
+    and file) so they can upload again. Needs a reason; the override is written to the audit log.
+    """
+    if not ObjectId.is_valid(submission_id):
+        raise HTTPException(status_code=400, detail="Invalid submission_id")
+    sub = await db["submissions"].find_one({"_id": ObjectId(submission_id)})
+    if not sub:
+        raise HTTPException(status_code=404, detail="Submission not found")
+    if not ObjectId.is_valid(sub["assignment_id"]):
+        raise HTTPException(status_code=400, detail="Invalid assignment reference")
+    assignment = await db["assignments"].find_one({"_id": ObjectId(sub["assignment_id"])})
+    if not assignment or assignment.get("teacher_id") != current_teacher["id"]:
+        raise HTTPException(status_code=403, detail="Not authorized to change this submission")
+    try:
+        await record_audit(
+            db, current_teacher, "submission_reset", "submission", submission_id, body.reason,
+            details={
+                "assignment_id": sub["assignment_id"], "assignment_title": assignment.get("title"),
+                "student_id": sub["student_id"], "previous_status": sub.get("status"),
+                "previous_score": sub.get("score"), "file": sub.get("answer_file_path"),
+            },
+        )
+    except AuditError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    await db["submissions"].delete_one({"_id": ObjectId(submission_id)})
+    folder = UPLOAD_DIR / "submissions" / submission_id
+    if folder.is_dir():
+        shutil.rmtree(folder, ignore_errors=True)
+    await notify_user(
+        db,
+        user_id=sub["student_id"],
+        title="You may submit again",
+        body=f"Your teacher allowed a new submission for '{assignment.get('title', 'the assignment')}' ({body.reason.strip()})",
+        link="/",
+        category="grading",
+    )
+    return {"allowed": True, "submission_id": submission_id, "student_id": sub["student_id"]}
 
 
 @router.post("/assignment/{assignment_id}/check-plagiarism")

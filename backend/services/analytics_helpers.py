@@ -3,6 +3,8 @@ Pure helpers for the teacher analytics overview.
 """
 from typing import Any, Dict, Iterable, List
 
+from services.quiz_logic import is_correct
+
 SCORE_BUCKETS = [(0, 40, "0-39"), (40, 60, "40-59"), (60, 70, "60-69"), (70, 80, "70-79"), (80, 90, "80-89"), (90, 101, "90-100")]
 
 
@@ -39,7 +41,7 @@ def weak_questions(quizzes: List[Dict[str, Any]], attempts: List[Dict[str, Any]]
         for idx, q in enumerate(quiz.get("questions") or []):
             correct = sum(
                 1 for a in quiz_attempts
-                if idx < len(a.get("answers") or []) and a["answers"][idx] == q.get("correct_index")
+                if idx < len(a.get("answers") or []) and is_correct(q, a["answers"][idx])
             )
             rows.append({
                 "quiz_id": qid,

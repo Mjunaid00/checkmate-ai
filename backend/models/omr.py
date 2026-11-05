@@ -58,6 +58,10 @@ class OMRSubmissionInDB(BaseModel):
     correct_count: Optional[int] = None
     incorrect_count: Optional[int] = None
     blank_count: Optional[int] = None
+    multiple_count: Optional[int] = 0          # questions with more than one bubble filled (-2)
+    multiple_marked: Optional[List[int]] = None  # their 0-based indices
+    needs_review: Optional[bool] = False         # multiple marks or a mostly blank sheet
+    warnings: Optional[List[str]] = None         # e.g. only the first PDF page was read
     score: Optional[float] = None
     total_marks: int
     percentage: Optional[float] = None
@@ -81,6 +85,10 @@ class OMRSubmissionOut(BaseModel):
     correct_count: Optional[int] = None
     incorrect_count: Optional[int] = None
     blank_count: Optional[int] = None
+    multiple_count: Optional[int] = 0          # questions with more than one bubble filled (-2)
+    multiple_marked: Optional[List[int]] = None  # their 0-based indices
+    needs_review: Optional[bool] = False         # multiple marks or a mostly blank sheet
+    warnings: Optional[List[str]] = None         # e.g. only the first PDF page was read
     score: Optional[float] = None
     total_marks: int
     percentage: Optional[float] = None

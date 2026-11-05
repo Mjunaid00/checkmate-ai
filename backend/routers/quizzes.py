@@ -4,7 +4,7 @@ an uploaded PDF, TXT or DOCX), students take them once with a server-timed windo
 """
 import random
 from datetime import datetime, timedelta
-from typing import List, Optional
+from typing import List, Optional, Union
 from fastapi import APIRouter, Depends, HTTPException, Body, File, UploadFile, Form
 from pydantic import BaseModel
 from bson import ObjectId
@@ -15,7 +15,8 @@ from models.school import QuizOut, QuizAttemptOut
 from routers.deps import get_current_teacher, get_current_student, get_current_user
 from services.document_text import DocumentError, SUPPORTED_EXTENSIONS, extract_text
 from services.quiz_generator import GenerationError, QUESTION_TYPES as GENERATION_TYPES, generate_quiz_questions
-from services.quiz_logic import QuizValidationError, normalise_question, submission_window
+from services.audit import AuditError, record_audit
+from services.quiz_logic import QuizValidationError, coerce_answers, is_correct, normalise_question, submission_window
 from services.quiz_logic import validate_questions as validate_question_dicts
 from services.notifications import notify_user
 
@@ -24,10 +25,11 @@ router = APIRouter(prefix="/quizzes", tags=["quizzes"])
 
 # ── Request bodies ──────────────────────────────────────────────────────────
 class QuizQuestionInput(BaseModel):
-    type: str = "mcq"  # mcq | true_false
+    type: str = "mcq"  # mcq | true_false | short_answer
     question_text: str
-    options: List[str]
-    correct_index: int
+    options: List[str] = []                       # mcq / true_false
+    correct_index: Optional[int] = None           # mcq / true_false
+    accepted_answers: Optional[List[str]] = None  # short_answer: any of these (case/punctuation-insensitive)
     marks: int = 1
     explanation: Optional[str] = None
 
@@ -42,6 +44,10 @@ class QuizCreateBody(BaseModel):
     shuffle_questions: bool = True
     shuffle_options: bool = True
     show_correct_after: bool = True
+
+
+class AttemptResetBody(BaseModel):
+    reason: str
 
 
 class QuizUpdateBody(BaseModel):
@@ -67,7 +73,7 @@ class QuizGenerateBody(BaseModel):
 
 
 class QuizSubmitBody(BaseModel):
-    answers: List[int]
+    answers: List[Union[int, str, None]]  # option index per choice question, text per short answer
     started_at: Optional[str] = None  # ignored: the server recorded the start in /start
     auto_submitted: bool = False
     # Integrity / proctoring metrics
@@ -562,18 +568,16 @@ async def submit_quiz(
     time_taken = max(0, int((submitted_at - started_at).total_seconds()))
 
     questions = quiz["questions"]
-    if len(body.answers) != len(questions):
-        raise HTTPException(
-            status_code=400,
-            detail=f"Expected {len(questions)} answers, got {len(body.answers)}",
-        )
+    try:
+        answers = coerce_answers(questions, list(body.answers))
+    except QuizValidationError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
-    # Grade
+    # Grade (choice questions by index, short answers by normalised text match)
     score = 0
     correct_count = 0
-    for i, q in enumerate(questions):
-        ans = body.answers[i]
-        if ans == q["correct_index"]:
+    for q, ans in zip(questions, answers):
+        if is_correct(q, ans):
             score += q.get("marks", 1)
             correct_count += 1
 
@@ -582,7 +586,7 @@ async def submit_quiz(
         "student_id": current_student["id"],
         "status": "submitted",
         "late_by_seconds": window["late_by_seconds"],
-        "answers": body.answers,
+        "answers": answers,
         "score": score,
         "total_marks": quiz["total_marks"],
         "correct_count": correct_count,
@@ -648,16 +652,24 @@ async def my_attempt(
     questions = quiz["questions"]
     detailed = []
     for i, q in enumerate(questions):
-        student_ans = attempt["answers"][i] if i < len(attempt["answers"]) else -1
-        is_correct = student_ans == q["correct_index"]
+        qtype = q.get("type", "mcq")
+        unanswered = "" if qtype == "short_answer" else -1
+        student_ans = attempt["answers"][i] if i < len(attempt["answers"]) else unanswered
+        correct = is_correct(q, student_ans)
+        if qtype == "short_answer":
+            correct_answer = (q.get("accepted_answers") or [None])[0] if show_correct else None
+        else:
+            correct_answer = q["correct_index"] if show_correct else None
         detailed.append({
+            "type": qtype,
             "question_text": q["question_text"],
-            "options": q["options"],
+            "options": q.get("options") or [],
             "student_answer": student_ans,
-            "correct_answer": q["correct_index"] if show_correct else None,
-            "is_correct": is_correct,
+            "correct_answer": correct_answer,
+            "accepted_answers": (q.get("accepted_answers") or []) if (show_correct and qtype == "short_answer") else None,
+            "is_correct": correct,
             "marks": q.get("marks", 1),
-            "marks_earned": q.get("marks", 1) if is_correct else 0,
+            "marks_earned": q.get("marks", 1) if correct else 0,
             "explanation": q.get("explanation") if show_correct else None,
         })
 
@@ -714,6 +726,52 @@ async def list_attempts(
     return out
 
 
+@router.post("/{quiz_id}/attempts/{student_id}/reset")
+async def reset_attempt(
+    quiz_id: str,
+    student_id: str,
+    body: AttemptResetBody,
+    current_teacher: dict = Depends(get_current_teacher),
+    db=Depends(get_db),
+):
+    """
+    Teacher override: remove a student's attempt (and any open session) so they can take the
+    quiz again. Needs a reason; the override is written to the audit log.
+    """
+    if not ObjectId.is_valid(quiz_id):
+        raise HTTPException(status_code=400, detail="Invalid quiz_id")
+    quiz = await db["quizzes"].find_one({"_id": ObjectId(quiz_id), "teacher_id": current_teacher["id"]})
+    if not quiz:
+        raise HTTPException(status_code=404, detail="Quiz not found")
+    attempt = await db["quiz_attempts"].find_one({"quiz_id": quiz_id, "student_id": student_id})
+    session = await db["quiz_sessions"].find_one({"quiz_id": quiz_id, "student_id": student_id})
+    if not attempt and not session:
+        raise HTTPException(status_code=404, detail="This student has no attempt to reset")
+    try:
+        await record_audit(
+            db, current_teacher, "quiz_attempt_reset", "quiz", quiz_id, body.reason,
+            details={
+                "quiz_title": quiz.get("title"), "student_id": student_id,
+                "previous_score": attempt.get("score") if attempt else None,
+                "previous_total": attempt.get("total_marks") if attempt else None,
+                "submitted_at": attempt.get("submitted_at").isoformat() if attempt and attempt.get("submitted_at") else None,
+            },
+        )
+    except AuditError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    await db["quiz_attempts"].delete_many({"quiz_id": quiz_id, "student_id": student_id})
+    await db["quiz_sessions"].delete_many({"quiz_id": quiz_id, "student_id": student_id})
+    await notify_user(
+        db,
+        user_id=student_id,
+        title="Quiz reopened for you",
+        body=f"Your teacher allowed a new attempt at '{quiz.get('title')}' ({body.reason.strip()})",
+        link="/",
+        category="quiz",
+    )
+    return {"reset": True, "quiz_id": quiz_id, "student_id": student_id}
+
+
 @router.get("/{quiz_id}/stats")
 async def quiz_stats(
     quiz_id: str,
@@ -751,7 +809,7 @@ async def quiz_stats(
     questions = quiz["questions"]
     question_stats = []
     for i, q in enumerate(questions):
-        correct = sum(1 for a in attempts if i < len(a["answers"]) and a["answers"][i] == q["correct_index"])
+        correct = sum(1 for a in attempts if i < len(a["answers"]) and is_correct(q, a["answers"][i]))
         question_stats.append({
             "question_index": i,
             "question_text": q["question_text"][:80],

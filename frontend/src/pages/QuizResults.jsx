@@ -13,6 +13,7 @@ export default function QuizResults() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [view, setView] = useState('summary'); // student: summary | review; teacher: stats | attempts
+  const [refreshKey, setRefreshKey] = useState(0); // bumped after a teacher resets an attempt
 
   const role = localStorage.getItem('role');
   const isTeacher = role === 'teacher' || role === 'admin';
@@ -38,7 +39,7 @@ export default function QuizResults() {
       }
     };
     fetch();
-  }, [quizId, isTeacher]);
+  }, [quizId, isTeacher, refreshKey]);
 
   if (loading) return <div className="loading-state">Loading results...</div>;
 
@@ -58,7 +59,7 @@ export default function QuizResults() {
       </button>
 
       {isTeacher && stats && (
-        <TeacherView quizId={quizId} stats={stats} attempts={attempts} view={view} setView={setView} />
+        <TeacherView quizId={quizId} stats={stats} attempts={attempts} view={view} setView={setView} onChanged={() => setRefreshKey(k => k + 1)} />
       )}
 
       {!isTeacher && data && (
@@ -175,6 +176,20 @@ function QuestionReview({ q, index }) {
         </span>
       </div>
 
+      {q.type === 'short_answer' ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', fontSize: '0.9rem' }}>
+          <div style={{ padding: '0.6rem 0.85rem', borderRadius: '0.4rem', background: q.is_correct ? 'var(--status-graded-bg)' : 'var(--status-failed-bg)', border: `1px solid ${q.is_correct ? 'var(--success)' : 'var(--danger)'}` }}>
+            <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontWeight: 600 }}>YOUR ANSWER </span>
+            {q.student_answer ? q.student_answer : <em className="text-muted">(no answer)</em>}
+          </div>
+          {q.accepted_answers && q.accepted_answers.length > 0 && (
+            <div style={{ padding: '0.6rem 0.85rem', borderRadius: '0.4rem', background: 'var(--bg-tertiary)', border: '1px solid var(--border-color)' }}>
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontWeight: 600 }}>ACCEPTED </span>
+              {q.accepted_answers.join(' / ')}
+            </div>
+          )}
+        </div>
+      ) : (
       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
         {q.options.map((opt, i) => {
           const isStudent = q.student_answer === i;
@@ -208,6 +223,7 @@ function QuestionReview({ q, index }) {
           );
         })}
       </div>
+      )}
 
       {q.explanation && (
         <div style={{ marginTop: '0.75rem', padding: '0.75rem', borderRadius: '0.4rem', background: 'var(--accent-soft)', fontSize: '0.85rem' }}>
@@ -220,7 +236,17 @@ function QuestionReview({ q, index }) {
 }
 
 // ── Teacher View ────────────────────────────────────────────────────────────
-function TeacherView({ quizId, stats, attempts, view, setView }) {
+function TeacherView({ quizId, stats, attempts, view, setView, onChanged }) {
+  const resetAttempt = async (a) => {
+    const reason = window.prompt(`Allow ${a.student_name} to take this quiz again? The current attempt will be deleted.\nReason (recorded in the audit log):`);
+    if (!reason || reason.trim().length < 3) return;
+    try {
+      await api.post(`/quizzes/${quizId}/attempts/${a.student_id}/reset`, { reason: reason.trim() });
+      if (onChanged) onChanged();
+    } catch (err) {
+      window.alert(err.response?.data?.detail || 'Could not reset the attempt');
+    }
+  };
   if (!stats || stats.attempt_count === 0) {
     return (
       <div className="glass-panel" style={{ padding: '2rem', textAlign: 'center' }}>
@@ -291,6 +317,7 @@ function TeacherView({ quizId, stats, attempts, view, setView }) {
                   <th>Time</th>
                   <th>Integrity</th>
                   <th>Submitted</th>
+                  <th>Override</th>
                 </tr>
               </thead>
               <tbody>
@@ -336,6 +363,16 @@ function TeacherView({ quizId, stats, attempts, view, setView }) {
                         )}
                       </td>
                       <td>{formatDateTime(a.submitted_at)}</td>
+                      <td>
+                        <button
+                          className="btn-secondary"
+                          onClick={() => resetAttempt(a)}
+                          style={{ padding: '0.3rem 0.6rem', fontSize: '0.78rem' }}
+                          title="Delete this attempt so the student can retake the quiz (recorded in the audit log)"
+                        >
+                          Allow retake
+                        </button>
+                      </td>
                     </tr>
                   );
                 })}

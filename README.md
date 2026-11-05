@@ -31,7 +31,19 @@ AI-powered exam grading platform with Explainable AI (XAI) feedback, built for t
 * **Student-safe responses**: students never receive the grading prompt, and rubric keyword
   lists in the XAI feedback appear only after the assignment deadline.
 * Teachers can create an assignment, a quiz or an OMR sheet straight from a class card.
-* Checks: `python -m pytest tests` in `backend/` (67 tests) and `python scripts\e2e_quiz.py --db <throwaway db>`
+* **Short-answer questions** (accepted answers, graded ignoring case, spacing and punctuation) and
+  reuse of questions from another quiz of the class in the builder.
+* **Teacher overrides with an audit log**: "Allow retake" on a quiz attempt and "Allow resubmit" on a
+  submission delete the record so the student can try again; both need a reason and are listed in
+  the Admin Panel's audit log (`GET /audit/`).
+* **OMR**: photos are auto-rotated, converted to greyscale and contrast-stretched before the vision
+  model reads them; questions with several bubbles filled are flagged (`-2`) and the sheet is marked
+  "Review" instead of silently counting them as blank.
+* **Excel export** of class and per-student reports (`/reports/.../xlsx`), and quiz attempts now
+  appear in the CSV / Excel grade matrix next to assignments.
+* **Shareable package**: `python scripts\make_share_package.py` builds `dist-share\CheckMateAI-<date>.zip`
+  for another Windows laptop with an NVIDIA GPU (see START-HERE.txt inside the zip).
+* Checks: `python -m pytest tests` in `backend/` (94 tests) and `python scripts\e2e_quiz.py --db <throwaway db>`
   against a running stack started with `DATABASE_NAME=<throwaway db>`.
 
 ## Tech Stack

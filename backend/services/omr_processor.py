@@ -1,46 +1,86 @@
 """
 OMR / Structured Sheet Processor
-Uses LM Studio vision model to read filled OMR / True-False bubble sheets.
-Returns the index of the marked option per question.
+Uses the LM Studio vision model to read filled OMR / True-False bubble sheets.
+
+Per question the model returns the index of the marked option, -1 when the bubble is
+blank or unreadable, and -2 when more than one bubble is filled. Multiple marks and
+mostly-blank sheets are flagged for the teacher's review (needs_review).
+
+Before the image goes to the model it is prepared (prepare_sheet_image): EXIF rotation
+applied, converted to greyscale, contrast stretched, and capped to MAX_SHEET_SIDE pixels.
 """
 import base64
 import io
 from pathlib import Path
-from typing import List, Dict, Any
+from typing import Any, Dict, List, Tuple
+
+from PIL import Image, ImageOps
 
 from config import absolute_upload_path
 from core.llm import chat_completion, extract_json_object
 
+MAX_SHEET_SIDE = 1600
+BLANK = -1
+MULTIPLE = -2
 
-def _file_to_base64_png(file_path: Path) -> str:
-    """Convert any supported file (PDF first page, PNG, JPG) to a base64 PNG data URL."""
+
+def prepare_sheet_image(img: Image.Image) -> Image.Image:
+    """Rotation from EXIF, greyscale, contrast stretch, size cap. Returns a new image."""
+    out = ImageOps.exif_transpose(img) or img
+    out = out.convert("L")
+    out = ImageOps.autocontrast(out, cutoff=0.5)
+    if max(out.size) > MAX_SHEET_SIDE:
+        out = out.copy()
+        out.thumbnail((MAX_SHEET_SIDE, MAX_SHEET_SIDE), Image.LANCZOS)
+    return out
+
+
+def load_sheet_image(file_path: Path) -> Tuple[Image.Image, List[str]]:
+    """Open an image or render the first PDF page. Returns (prepared image, warnings)."""
     suffix = file_path.suffix.lower()
-
+    warnings: List[str] = []
     if suffix in (".png", ".jpg", ".jpeg"):
-        with open(file_path, "rb") as f:
-            raw = f.read()
-        mime = "image/jpeg" if suffix in (".jpg", ".jpeg") else "image/png"
-        b64 = base64.b64encode(raw).decode("utf-8")
-        return f"data:{mime};base64,{b64}"
-
+        with Image.open(file_path) as img:
+            img.load()
+            return prepare_sheet_image(img), warnings
     if suffix == ".pdf":
         try:
             import pypdfium2 as pdfium
             doc = pdfium.PdfDocument(str(file_path))
-            if len(doc) == 0:
-                raise RuntimeError("PDF has no pages")
-            page = doc[0]
-            bitmap = page.render(scale=2)
-            pil_img = bitmap.to_pil()
-            buf = io.BytesIO()
-            pil_img.save(buf, format="PNG")
-            b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
-            doc.close()
-            return f"data:image/png;base64,{b64}"
+            try:
+                if len(doc) == 0:
+                    raise RuntimeError("PDF has no pages")
+                if len(doc) > 1:
+                    warnings.append(f"PDF has {len(doc)} pages; only the first page was read")
+                pil_img = doc[0].render(scale=2).to_pil()
+            finally:
+                doc.close()
+            return prepare_sheet_image(pil_img), warnings
         except Exception as e:
             raise RuntimeError(f"Failed to convert PDF: {e}") from e
-
     raise RuntimeError(f"Unsupported file type: {suffix}")
+
+
+def _to_data_url(img: Image.Image) -> str:
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode("utf-8")
+
+
+def clean_detected_answers(answers: Any, num_questions: int, options_per_question: int) -> List[int]:
+    """Exactly num_questions entries: a valid option index, BLANK (-1) or MULTIPLE (-2)."""
+    if not isinstance(answers, list):
+        answers = []
+    cleaned: List[int] = []
+    for i in range(num_questions):
+        a = answers[i] if i < len(answers) else BLANK
+        if isinstance(a, bool) or not isinstance(a, int):
+            cleaned.append(BLANK)
+        elif a in (BLANK, MULTIPLE) or 0 <= a < options_per_question:
+            cleaned.append(a)
+        else:
+            cleaned.append(BLANK)
+    return cleaned
 
 
 async def detect_omr_answers(
@@ -48,13 +88,13 @@ async def detect_omr_answers(
     num_questions: int,
     options_per_question: int,
     sheet_type: str = "mcq",
-) -> List[int]:
+) -> Tuple[List[int], List[str]]:
     """
-    Send the filled sheet image to the vision LLM and extract marked answers.
-    Returns a list of length num_questions; each entry is the marked option index
-    (0-based) or -1 if the bubble is blank/unclear/multiple-marked.
+    Send the prepared sheet image to the vision model and extract marked answers.
+    Returns (answers, warnings): one entry per question, option index / -1 blank / -2 multiple.
     """
-    image_url = _file_to_base64_png(sheet_path)
+    image, warnings = load_sheet_image(sheet_path)
+    image_url = _to_data_url(image)
 
     if sheet_type == "true_false":
         option_labels = "T (True) or F (False)"
@@ -66,21 +106,23 @@ async def detect_omr_answers(
 
     system_prompt = (
         "You are a strict OMR sheet grader. You ONLY return valid JSON with no extra text or markdown. "
-        "Detect which bubble is filled per question. If multiple bubbles are filled or the answer is unclear or blank, return -1 for that question."
+        "Detect which bubble is filled per question. Return -1 when the question is blank or unreadable, "
+        "and -2 when MORE THAN ONE bubble is filled for the same question."
     )
 
     user_prompt = (
         f"This is a filled {'True/False' if sheet_type == 'true_false' else 'multiple-choice'} answer sheet with "
         f"{num_questions} questions and {options_per_question} options per question ({option_labels}).\n"
         f"Index each option as 0-based: {option_explainer}.\n\n"
-        f"For each question 1 through {num_questions}, identify which bubble is filled (darkened/marked).\n"
+        f"For each question 1 through {num_questions}, identify which bubble is filled (darkened/marked). "
+        "The photo may be slightly rotated, shadowed or creased; judge by the darkest bubble in each row.\n"
         f"Return ONLY this JSON shape:\n"
         '{\n'
         '  "answers": [<int>, <int>, ... ]\n'
         '}\n\n'
         f"Rules:\n"
         f"- The list MUST have exactly {num_questions} entries.\n"
-        f"- Each entry is an integer in [0, {options_per_question - 1}] OR -1 if blank/unclear/multi-marked.\n"
+        f"- Each entry is an integer in [0, {options_per_question - 1}], or -1 if blank/unreadable, or -2 if several bubbles are filled.\n"
         f"- Do NOT explain. Do NOT wrap in markdown. Output ONLY the JSON object."
     )
 
@@ -103,20 +145,7 @@ async def detect_omr_answers(
         print(f"[OMR] Raw: {raw[:300]}")
         raise RuntimeError(f"OMR detection returned invalid JSON: {e}") from e
 
-    answers = result.get("answers", [])
-    if not isinstance(answers, list):
-        answers = []
-
-    cleaned: List[int] = []
-    for i in range(num_questions):
-        a = answers[i] if i < len(answers) else -1
-        if isinstance(a, bool):
-            a = -1
-        if isinstance(a, int) and -1 <= a < options_per_question:
-            cleaned.append(a)
-        else:
-            cleaned.append(-1)
-    return cleaned
+    return clean_detected_answers(result.get("answers", []), num_questions, options_per_question), warnings
 
 
 def grade_omr_answers(
@@ -125,14 +154,20 @@ def grade_omr_answers(
     marks_per_question: int,
     negative_marking: float = 0.0,
 ) -> Dict[str, Any]:
-    """Compare detected answers to the key and compute score breakdown."""
-    correct = 0
-    incorrect = 0
-    blank = 0
+    """
+    Compare detected answers to the key. Blank (-1) and multiple-marked (-2) questions earn
+    nothing and are not penalised; multiple marks are listed in `multiple_marked` and set
+    `needs_review`, as does a sheet that is more than half blank (probably a bad scan).
+    """
+    correct = incorrect = blank = multiple = 0
+    multiple_marked: List[int] = []
     for i, ans in enumerate(detected):
         if i >= len(answer_key):
             break
-        if ans == -1:
+        if ans == MULTIPLE:
+            multiple += 1
+            multiple_marked.append(i)
+        elif ans == BLANK:
             blank += 1
         elif ans == answer_key[i]:
             correct += 1
@@ -148,6 +183,9 @@ def grade_omr_answers(
         "correct_count": correct,
         "incorrect_count": incorrect,
         "blank_count": blank,
+        "multiple_count": multiple,
+        "multiple_marked": multiple_marked,
+        "needs_review": multiple > 0 or (len(answer_key) > 0 and blank > len(answer_key) / 2),
         "score": score,
         "total_marks": total_marks,
         "percentage": percentage,
@@ -174,7 +212,7 @@ async def process_omr_sheet(
     try:
         sheet_path = absolute_upload_path(sheet_relative_path)
 
-        detected = await detect_omr_answers(
+        detected, warnings = await detect_omr_answers(
             sheet_path,
             num_questions=template["num_questions"],
             options_per_question=template["options_per_question"],
@@ -196,6 +234,10 @@ async def process_omr_sheet(
                 "correct_count": result["correct_count"],
                 "incorrect_count": result["incorrect_count"],
                 "blank_count": result["blank_count"],
+                "multiple_count": result["multiple_count"],
+                "multiple_marked": result["multiple_marked"],
+                "needs_review": result["needs_review"],
+                "warnings": warnings,
                 "score": result["score"],
                 "percentage": result["percentage"],
             }},
@@ -205,11 +247,12 @@ async def process_omr_sheet(
         from services.notifications import notify_user
         sub = await db["omr_submissions"].find_one({"_id": obj_id})
         if sub and sub.get("submitter_id") and sub.get("submitter_role") == "student":
+            review_note = " (flagged for teacher review)" if result["needs_review"] else ""
             await notify_user(
                 db,
                 user_id=sub["submitter_id"],
                 title="OMR sheet graded",
-                body=f"'{template.get('title', 'OMR')}' — scored {result['score']}/{result['total_marks']} ({result['percentage']}%)",
+                body=f"'{template.get('title', 'OMR')}' — scored {result['score']}/{result['total_marks']} ({result['percentage']}%){review_note}",
                 link="/",
                 category="grading",
             )

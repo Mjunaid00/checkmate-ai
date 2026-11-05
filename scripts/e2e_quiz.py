@@ -183,6 +183,63 @@ def main() -> int:
     check("teacher sees grading_prompt", t_list and t_list[0]["grading_prompt"])
     check("student does NOT see grading_prompt", s_list and s_list[0]["grading_prompt"] is None, s_list[0].get("grading_prompt") if s_list else None)
 
+    # ── short-answer quiz ────────────────────────────────────────────────────
+    r = c.post(f"{BASE}/quizzes/", json={
+        "class_id": class_id, "title": f"Short answers {TAG}", "time_limit_minutes": 5, "shuffle_options": False,
+        "questions": [
+            {"type": "short_answer", "question_text": "Capital of France?", "accepted_answers": ["Paris", "Paris, France"], "marks": 2},
+            {"type": "mcq", "question_text": "1 + 1 = ?", "options": ["1", "2"], "correct_index": 1, "marks": 1},
+        ]}, headers=teacher)
+    check("short-answer quiz created", r.status_code == 200, r.text[:120])
+    quiz3 = r.json()["quiz_id"]
+    r = c.post(f"{BASE}/quizzes/", json={"class_id": class_id, "title": "bad sa", "time_limit_minutes": 5,
+                                         "questions": [{"type": "short_answer", "question_text": "x", "accepted_answers": []}]}, headers=teacher)
+    check("short answer without accepted answers rejected (400)", r.status_code == 400, r.json().get("detail"))
+    st3 = c.post(f"{BASE}/quizzes/{quiz3}/start", headers=student).json()
+    sa = next(q for q in st3["questions"] if q["type"] == "short_answer")
+    check("student start hides accepted answers", "accepted_answers" not in sa and sa["options"] == [])
+    ans3 = [None, None]
+    for q in st3["questions"]:
+        ans3[q["_orig_idx"]] = "  paris!  " if q["type"] == "short_answer" else q["_option_map"].index(1)
+    r = c.post(f"{BASE}/quizzes/{quiz3}/submit", json={"answers": ans3}, headers=student)
+    check("short answer graded case/punctuation-insensitively (3/3)", r.status_code == 200 and r.json()["score"] == 3, r.text[:120])
+    mine = c.get(f"{BASE}/quizzes/{quiz3}/my-attempt", headers=student).json()
+    sa_review = next(q for q in mine["questions"] if q["type"] == "short_answer")
+    check("review shows the student's text and the accepted answers", sa_review["student_answer"] == "paris!" and sa_review["accepted_answers"] == ["Paris", "Paris, France"], sa_review)
+
+    # ── teacher override: reset attempt (audited) ────────────────────────────
+    r = c.post(f"{BASE}/quizzes/{quiz3}/attempts/{s_me['id']}/reset", json={"reason": ""}, headers=teacher)
+    check("reset without a reason rejected (400)", r.status_code == 400, r.json().get("detail"))
+    r = c.post(f"{BASE}/quizzes/{quiz3}/attempts/{s_me['id']}/reset", json={"reason": "browser crashed mid-quiz"}, headers=teacher)
+    check("reset attempt -> 200", r.status_code == 200, r.text[:100])
+    r = c.post(f"{BASE}/quizzes/{quiz3}/start", headers=student)
+    check("student can start again after the reset", r.status_code == 200, r.text[:100])
+    r = c.post(f"{BASE}/quizzes/{quiz3}/attempts/{s_me['id']}/reset", json={"reason": "x"}, headers=other_teacher)
+    check("other teacher cannot reset (404)", r.status_code == 404, r.status_code)
+
+    # ── teacher override: allow resubmission (audited) ───────────────────────
+    a_doc = db["assignments"].find_one({"class_id": class_id})
+    fake_sub = db["submissions"].insert_one({"assignment_id": str(a_doc["_id"]), "student_id": s_me["id"], "status": "uploaded",
+                                            "created_at": datetime.utcnow(), "answer_file_path": "uploads/submissions/none/x.png"})
+    sub_id = str(fake_sub.inserted_id)
+    r = c.post(f"{BASE}/submissions/{sub_id}/allow-resubmission", json={"reason": "uploaded the wrong file"}, headers=teacher)
+    check("allow resubmission -> 200", r.status_code == 200, r.text[:100])
+    check("submission record removed", db["submissions"].count_documents({"_id": fake_sub.inserted_id}) == 0)
+    audit = c.get(f"{BASE}/audit/", headers=teacher).json()
+    actions = [e["action"] for e in audit]
+    check("teacher audit log lists both overrides", actions.count("quiz_attempt_reset") == 1 and actions.count("submission_reset") == 1, actions)
+    check("audit entries carry the reasons", {e["reason"] for e in audit} >= {"browser crashed mid-quiz", "uploaded the wrong file"})
+    other_audit = c.get(f"{BASE}/audit/", headers=other_teacher).json()
+    check("other teacher sees no entries of this teacher", other_audit == [], other_audit)
+
+    # ── Excel / CSV reports include quizzes ──────────────────────────────────
+    r = c.get(f"{BASE}/reports/class/{class_id}/xlsx", headers=teacher)
+    check("class report as xlsx", r.status_code == 200 and r.content[:2] == b"PK" and "spreadsheetml" in r.headers.get("content-type", ""), (r.status_code, r.headers.get("content-type")))
+    r = c.get(f"{BASE}/reports/class/{class_id}/csv", headers=teacher)
+    check("class CSV has Type column with Quiz rows", r.status_code == 200 and "Type" in r.text.splitlines()[0] and ",Quiz," in r.text, r.text[:160])
+    r = c.get(f"{BASE}/reports/student/{s_me['id']}/class/{class_id}/xlsx", headers=teacher)
+    check("student report as xlsx", r.status_code == 200 and r.content[:2] == b"PK")
+
     # ── AI generation ────────────────────────────────────────────────────────
     if not args.skip_ai:
         r = c.post(f"{BASE}/quizzes/generate", json={"topic": "the water cycle", "num_questions": 3, "difficulty": "easy",

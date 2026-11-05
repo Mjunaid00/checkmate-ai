@@ -26,13 +26,13 @@ export default function Analytics() {
     fetchData();
   }, []);
 
-  const handleDownloadClass = async (classId, className) => {
+  const handleDownloadClass = async (classId, className, ext = 'csv') => {
     try {
-      const res = await api.get(`/reports/class/${classId}/csv`, { responseType: 'blob' });
-      const blob = new Blob([res.data], { type: 'text/csv' });
+      const res = await api.get(`/reports/class/${classId}/${ext}`, { responseType: 'blob' });
+      const blob = new Blob([res.data], { type: ext === 'xlsx' ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' : 'text/csv' });
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
-      a.download = `${className}_report.csv`;
+      a.download = `${className}_report.${ext}`;
       a.click();
       URL.revokeObjectURL(a.href);
     } catch (err) {
@@ -269,6 +269,13 @@ export default function Analytics() {
                       style={{ padding: '0.35rem 0.7rem', fontSize: '0.8rem' }}
                     >
                       <Download size={13} /> CSV
+                    </button>
+                    <button
+                      className="btn-secondary"
+                      onClick={() => handleDownloadClass(c.class_id, c.class_name, 'xlsx')}
+                      style={{ padding: '0.35rem 0.7rem', fontSize: '0.8rem', marginLeft: '0.3rem' }}
+                    >
+                      <Download size={13} /> Excel
                     </button>
                   </td>
                 </tr>

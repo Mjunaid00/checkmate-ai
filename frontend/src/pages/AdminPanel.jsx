@@ -233,6 +233,8 @@ export default function AdminPanel() {
           onCreated={() => { setShowCreate(false); flash('User created.'); fetchAll(); }}
         />
       )}
+      <AuditLogSection />
+
       {editingUser && (
         <EditUserModal
           user={editingUser}
@@ -248,6 +250,51 @@ export default function AdminPanel() {
         />
       )}
     </div>
+  );
+}
+
+function AuditLogSection() {
+  const [entries, setEntries] = useState(null);
+  useEffect(() => {
+    api.get('/audit/', { params: { limit: 100 } }).then(r => setEntries(r.data)).catch(() => setEntries([]));
+  }, []);
+  const label = (a) => ({ quiz_attempt_reset: 'Quiz retake allowed', submission_reset: 'Resubmission allowed' }[a] || a);
+  const target = (e) => {
+    const d = e.details || {};
+    const what = d.quiz_title || d.assignment_title || e.target_type;
+    return d.student_id ? `${what} · student …${String(d.student_id).slice(-6)}` : what;
+  };
+  return (
+    <section className="glass-panel" style={{ padding: '1rem', marginTop: '1rem' }}>
+      <h3 className="section-title" style={{ marginBottom: '0.25rem' }}>Audit log</h3>
+      <p className="text-muted" style={{ fontSize: '0.82rem', marginBottom: '0.75rem' }}>
+        Teacher overrides of the single-submission rule, with the reason given.
+      </p>
+      {entries === null ? (
+        <p className="text-muted">Loading...</p>
+      ) : entries.length === 0 ? (
+        <p className="text-muted">No overrides recorded yet.</p>
+      ) : (
+        <div style={{ overflowX: 'auto' }}>
+          <table className="data-table" style={{ width: '100%' }}>
+            <thead>
+              <tr><th>When</th><th>Who</th><th>Action</th><th>Target</th><th>Reason</th></tr>
+            </thead>
+            <tbody>
+              {entries.map(e => (
+                <tr key={e.audit_id}>
+                  <td style={{ whiteSpace: 'nowrap' }}>{formatDate(e.created_at)}</td>
+                  <td>{e.actor_name} <span className="text-muted">({e.actor_role})</span></td>
+                  <td>{label(e.action)}</td>
+                  <td style={{ fontSize: '0.82rem' }}>{target(e)}</td>
+                  <td>{e.reason}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
   );
 }
 

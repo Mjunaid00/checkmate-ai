@@ -12,6 +12,8 @@ from fastapi.responses import StreamingResponse
 from bson import ObjectId
 from database import get_db
 from routers.deps import get_current_teacher
+from services.report_rows import class_matrix_rows, student_rows
+from services.xlsx_export import XLSX_MEDIA_TYPE, rows_to_xlsx_bytes
 
 router = APIRouter(prefix="/reports", tags=["reports"])
 
@@ -30,6 +32,19 @@ def _csv_response(rows: list, filename: str) -> StreamingResponse:
         media_type="text/csv",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+def _xlsx_response(rows: list, filename: str, title: str) -> StreamingResponse:
+    data = rows_to_xlsx_bytes(rows, sheet_title=title)
+    return StreamingResponse(
+        iter([data]),
+        media_type=XLSX_MEDIA_TYPE,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+def _safe(name: str, fallback: str) -> str:
+    return "".join(c for c in (name or fallback) if c.isalnum() or c in (" ", "_", "-")).strip().replace(" ", "_") or fallback
 
 
 async def _verify_teacher_owns_class(db, class_id: str, teacher_id: str) -> dict:
@@ -63,7 +78,13 @@ async def _get_class_data(db, class_id: str):
         users = await cursor.to_list(length=500)
         students = {str(u["_id"]): {"name": u.get("name", "Unknown"), "email": u.get("email", "")} for u in users}
 
-    return assignments, enrollments, submissions, students
+    quizzes = await db["quizzes"].find({"class_id": class_id}).sort("created_at", 1).to_list(length=200)
+    quiz_ids = [str(z["_id"]) for z in quizzes]
+    attempts = []
+    if quiz_ids:
+        attempts = await db["quiz_attempts"].find({"quiz_id": {"$in": quiz_ids}}).to_list(length=5000)
+
+    return assignments, enrollments, submissions, students, quizzes, attempts
 
 
 @router.get("/class/{class_id}/summary")
@@ -74,7 +95,7 @@ async def class_summary(
 ):
     """Per-assignment submission counts + per-student score breakdown for a class."""
     class_doc = await _verify_teacher_owns_class(db, class_id, current_teacher["id"])
-    assignments, enrollments, submissions, students = await _get_class_data(db, class_id)
+    assignments, enrollments, submissions, students, quizzes, attempts = await _get_class_data(db, class_id)
 
     enrolled_count = len(enrollments)
 
@@ -141,39 +162,35 @@ async def class_summary(
     }
 
 
+async def _class_report_rows(db, class_id: str, teacher_id: str):
+    """(class_doc, rows): one row per student x assessment (assignments and quizzes)."""
+    class_doc = await _verify_teacher_owns_class(db, class_id, teacher_id)
+    assignments, enrollments, submissions, students, quizzes, attempts = await _get_class_data(db, class_id)
+    return class_doc, class_matrix_rows(assignments, quizzes, enrollments, submissions, attempts, students)
+
+
 @router.get("/class/{class_id}/csv")
 async def class_csv_report(
     class_id: str,
     current_teacher: dict = Depends(get_current_teacher),
     db=Depends(get_db),
 ):
-    """Download a CSV with one row per (student × assignment) — full grade matrix."""
-    class_doc = await _verify_teacher_owns_class(db, class_id, current_teacher["id"])
-    assignments, enrollments, submissions, students = await _get_class_data(db, class_id)
-
-    rows = []
-    for enr in enrollments:
-        sid = enr["student_id"]
-        student_info = students.get(sid, {})
-        for a in assignments:
-            a_id = str(a["_id"])
-            sub = next((s for s in submissions if s["student_id"] == sid and s["assignment_id"] == a_id), None)
-            rows.append({
-                "Student Name": student_info.get("name", "Unknown"),
-                "Student Email": student_info.get("email", ""),
-                "Assignment": a.get("title", ""),
-                "Total Marks": a.get("total_marks", 0),
-                "Deadline": a.get("deadline").strftime("%Y-%m-%d %H:%M") if a.get("deadline") else "",
-                "Status": sub.get("status") if sub else "Not Submitted",
-                "Score": sub.get("score") if sub and sub.get("score") is not None else "",
-                "Percentage": f"{(sub['score'] / max(a.get('total_marks', 1), 1)) * 100:.1f}%" if sub and sub.get("score") is not None else "",
-                "Submitted At": sub.get("created_at").strftime("%Y-%m-%d %H:%M") if sub and sub.get("created_at") else "",
-                "Feedback": (sub.get("feedback") or "").replace("\n", " ") if sub else "",
-            })
-
-    safe_name = "".join(c for c in class_doc.get("name", "class") if c.isalnum() or c in (" ", "_", "-")).strip().replace(" ", "_")
-    filename = f"{safe_name}_report_{datetime.utcnow().strftime('%Y%m%d')}.csv"
+    """Download a CSV with one row per (student x assignment / quiz) - the full grade matrix."""
+    class_doc, rows = await _class_report_rows(db, class_id, current_teacher["id"])
+    filename = f"{_safe(class_doc.get('name'), 'class')}_report_{datetime.utcnow().strftime('%Y%m%d')}.csv"
     return _csv_response(rows, filename)
+
+
+@router.get("/class/{class_id}/xlsx")
+async def class_xlsx_report(
+    class_id: str,
+    current_teacher: dict = Depends(get_current_teacher),
+    db=Depends(get_db),
+):
+    """The same grade matrix as an Excel workbook."""
+    class_doc, rows = await _class_report_rows(db, class_id, current_teacher["id"])
+    filename = f"{_safe(class_doc.get('name'), 'class')}_report_{datetime.utcnow().strftime('%Y%m%d')}.xlsx"
+    return _xlsx_response(rows, filename, "Grades")
 
 
 @router.get("/student/{student_id}/class/{class_id}")
@@ -185,7 +202,7 @@ async def student_class_report(
 ):
     """Detailed report for a single student in a specific class."""
     class_doc = await _verify_teacher_owns_class(db, class_id, current_teacher["id"])
-    assignments, enrollments, submissions, students = await _get_class_data(db, class_id)
+    assignments, enrollments, submissions, students, quizzes, attempts = await _get_class_data(db, class_id)
 
     if not any(e["student_id"] == student_id for e in enrollments):
         raise HTTPException(status_code=404, detail="Student not enrolled in this class")
@@ -226,6 +243,19 @@ async def student_class_report(
     }
 
 
+async def _student_report_rows(db, student_id: str, class_id: str, teacher_id: str):
+    class_doc = await _verify_teacher_owns_class(db, class_id, teacher_id)
+    assignments, enrollments, submissions, students, quizzes, attempts = await _get_class_data(db, class_id)
+    if not any(e["student_id"] == student_id for e in enrollments):
+        raise HTTPException(status_code=404, detail="Student not enrolled in this class")
+    student = students.get(student_id, {"name": "Unknown", "email": ""})
+    return class_doc, student, student_rows(student_id, assignments, quizzes, submissions, attempts)
+
+
+def _student_filename(class_doc: dict, student: dict, ext: str) -> str:
+    return f"{_safe(student.get('name'), 'student')}_{_safe(class_doc.get('name'), 'class')}_{datetime.utcnow().strftime('%Y%m%d')}.{ext}"
+
+
 @router.get("/student/{student_id}/class/{class_id}/csv")
 async def student_csv_report(
     student_id: str,
@@ -233,31 +263,18 @@ async def student_csv_report(
     current_teacher: dict = Depends(get_current_teacher),
     db=Depends(get_db),
 ):
-    """Download a CSV report for a single student in a class."""
-    class_doc = await _verify_teacher_owns_class(db, class_id, current_teacher["id"])
-    assignments, enrollments, submissions, students = await _get_class_data(db, class_id)
+    """Download a CSV report (assignments and quizzes) for a single student in a class."""
+    class_doc, student, rows = await _student_report_rows(db, student_id, class_id, current_teacher["id"])
+    return _csv_response(rows, _student_filename(class_doc, student, "csv"))
 
-    if not any(e["student_id"] == student_id for e in enrollments):
-        raise HTTPException(status_code=404, detail="Student not enrolled in this class")
 
-    student = students.get(student_id, {"name": "Unknown", "email": ""})
-
-    rows = []
-    for a in assignments:
-        a_id = str(a["_id"])
-        sub = next((s for s in submissions if s["student_id"] == student_id and s["assignment_id"] == a_id), None)
-        rows.append({
-            "Assignment": a.get("title", ""),
-            "Total Marks": a.get("total_marks", 0),
-            "Deadline": a.get("deadline").strftime("%Y-%m-%d %H:%M") if a.get("deadline") else "",
-            "Status": sub.get("status") if sub else "Not Submitted",
-            "Score": sub.get("score") if sub and sub.get("score") is not None else "",
-            "Percentage": f"{(sub['score'] / max(a.get('total_marks', 1), 1)) * 100:.1f}%" if sub and sub.get("score") is not None else "",
-            "Submitted At": sub.get("created_at").strftime("%Y-%m-%d %H:%M") if sub and sub.get("created_at") else "",
-            "Feedback": (sub.get("feedback") or "").replace("\n", " ") if sub else "",
-        })
-
-    safe_class = "".join(c for c in class_doc.get("name", "class") if c.isalnum() or c in (" ", "_", "-")).strip().replace(" ", "_")
-    safe_student = "".join(c for c in student.get("name", "student") if c.isalnum() or c in (" ", "_", "-")).strip().replace(" ", "_")
-    filename = f"{safe_student}_{safe_class}_{datetime.utcnow().strftime('%Y%m%d')}.csv"
-    return _csv_response(rows, filename)
+@router.get("/student/{student_id}/class/{class_id}/xlsx")
+async def student_xlsx_report(
+    student_id: str,
+    class_id: str,
+    current_teacher: dict = Depends(get_current_teacher),
+    db=Depends(get_db),
+):
+    """The same single-student report as an Excel workbook."""
+    class_doc, student, rows = await _student_report_rows(db, student_id, class_id, current_teacher["id"])
+    return _xlsx_response(rows, _student_filename(class_doc, student, "xlsx"), "Report")

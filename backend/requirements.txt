@@ -27,3 +27,6 @@ dnspython   # needed for mongodb+srv:// connection strings (MongoDB Atlas)
 # Reference documents for question generation (TXT / DOCX) and PDF page rendering
 python-docx
 pypdfium2
+
+# Excel export of class reports
+openpyxl

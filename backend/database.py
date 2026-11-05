@@ -62,6 +62,8 @@ INDEXES = [
     ("enrollments", [("class_id", 1), ("student_id", 1)], {"unique": True, "name": "uniq_enrollment"}),
     ("quiz_attempts", [("quiz_id", 1), ("student_id", 1)], {"unique": True, "name": "uniq_attempt"}),
     ("quiz_sessions", [("quiz_id", 1), ("student_id", 1)], {"unique": True, "name": "uniq_quiz_session"}),
+    ("audit_log", [("created_at", -1)], {"name": "audit_created"}),
+    ("audit_log", [("actor_id", 1), ("created_at", -1)], {"name": "audit_actor"}),
     ("notifications", [("user_id", 1), ("created_at", -1)], {"name": "user_recent"}),
     ("messages", [("to_user_id", 1), ("created_at", -1)], {"name": "recipient_recent"}),
     ("assignments", [("class_id", 1), ("created_at", -1)], {"name": "class_recent"}),

@@ -56,3 +56,16 @@ Bugs 1-3 above are fixed (route order, dead `routers/upload.py` removed, `pypdfi
 would let anyone forge tokens on the public tunnel); existing sessions had to log in again.
 Verified by 67 unit tests and `scripts/e2e_quiz.py` (40 checks, including generation from a
 TXT and a DOCX file with the local model).
+
+## Update after the second round (same day)
+
+| # | Requirement | Now | Change |
+|---|-------------|-----|--------|
+| 1a | Manual authoring | PARTIAL | Short-answer questions added (accepted answers, normalised matching). Essay questions (manual grading) still missing. |
+| 1d | Question bank | PARTIAL | Questions of another quiz in the same class can be imported in the builder. No separate bank with tags yet. |
+| 2b | OMR robustness | PARTIAL | EXIF auto-rotation, greyscale, contrast stretch and a size cap before the model reads the sheet (`prepare_sheet_image`); multi-page PDFs produce a warning. No deskew or per-question confidence. |
+| 2c | OMR anomalies | PARTIAL | Multiple-mark questions are detected (`-2`), listed in `multiple_marked`, and the sheet gets `needs_review`; shown in the results modal. Batch sheets are still not linked to students; no manual correction. |
+| 3b | Teacher override + audit log | IMPLEMENTED | `POST /quizzes/{id}/attempts/{student}/reset` and `POST /submissions/{id}/allow-resubmission` need a reason, notify the student and write to `audit_log`; `GET /audit/` (admin: all, teacher: own) feeds the Admin Panel. |
+| 5b | Export | IMPLEMENTED | Excel export for class and student reports; quiz attempts included in CSV and Excel. |
+
+Verified by 94 unit tests and `scripts/e2e_quiz.py` (57 live checks).

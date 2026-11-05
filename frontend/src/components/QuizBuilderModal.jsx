@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { X, Plus, Trash2, Sparkles, Save, Check, ChevronDown, ChevronUp, FileUp } from 'lucide-react';
 import api from '../services/api';
 import DateTimeField from './DateTimeField';
@@ -38,12 +38,40 @@ export default function QuizBuilderModal({ classId, onClose, onSaved }) {
     return {
       type,
       question_text: '',
-      options: type === 'true_false' ? ['True', 'False'] : ['', '', '', ''],
-      correct_index: 0,
+      options: type === 'true_false' ? ['True', 'False'] : type === 'short_answer' ? [] : ['', '', '', ''],
+      correct_index: type === 'short_answer' ? null : 0,
+      accepted_answers: type === 'short_answer' ? [''] : null,
       marks: 1,
       explanation: '',
     };
   }
+
+  // Other quizzes of this class, so their questions can be reused.
+  const [classQuizzes, setClassQuizzes] = useState([]);
+  const [importFrom, setImportFrom] = useState('');
+  useEffect(() => {
+    if (!classId) return;
+    api.get(`/quizzes/class/${classId}`).then(r => setClassQuizzes(r.data || [])).catch(() => {});
+  }, [classId]);
+
+  const importQuestions = () => {
+    const src = classQuizzes.find(z => z.quiz_id === importFrom);
+    if (!src || !src.questions) return;
+    const imported = src.questions.map(q => ({
+      type: q.type || 'mcq',
+      question_text: q.question_text || '',
+      options: q.options || [],
+      correct_index: q.correct_index ?? null,
+      accepted_answers: q.accepted_answers || null,
+      marks: q.marks || 1,
+      explanation: q.explanation || '',
+    }));
+    setQuestions(qs => {
+      const onlyBlank = qs.length === 1 && !qs[0].question_text.trim();
+      return onlyBlank ? imported : [...qs, ...imported];
+    });
+    setImportFrom('');
+  };
 
   // ── AI Generation ────────────────────────────────────────
   const handleGenerateAI = async () => {
@@ -122,11 +150,18 @@ export default function QuizBuilderModal({ classId, onClose, onSaved }) {
         setError(`Question ${i + 1}: text required`);
         return;
       }
+      if ((q.type || 'mcq') === 'short_answer') {
+        if (!(q.accepted_answers || []).some(a => a && a.trim())) {
+          setError(`Question ${i + 1}: add at least one accepted answer`);
+          return;
+        }
+        continue;
+      }
       if (q.options.some(o => !o.trim())) {
         setError(`Question ${i + 1}: all options must be filled`);
         return;
       }
-      if (q.correct_index < 0 || q.correct_index >= q.options.length) {
+      if (q.correct_index === null || q.correct_index < 0 || q.correct_index >= q.options.length) {
         setError(`Question ${i + 1}: select a correct answer`);
         return;
       }
@@ -139,14 +174,19 @@ export default function QuizBuilderModal({ classId, onClose, onSaved }) {
         class_id: classId,
         ...meta,
         deadline: toApiDatetime(meta.deadline) || null,
-        questions: questions.map(q => ({
-          type: q.type || 'mcq',
-          question_text: q.question_text.trim(),
-          options: q.options.map(o => o.trim()),
-          correct_index: q.correct_index,
-          marks: parseInt(q.marks) || 1,
-          explanation: q.explanation?.trim() || null,
-        })),
+        questions: questions.map(q => {
+          const type = q.type || 'mcq';
+          const isShort = type === 'short_answer';
+          return {
+            type,
+            question_text: q.question_text.trim(),
+            options: isShort ? [] : q.options.map(o => o.trim()),
+            correct_index: isShort ? null : q.correct_index,
+            accepted_answers: isShort ? (q.accepted_answers || []).map(a => a.trim()).filter(Boolean) : null,
+            marks: parseInt(q.marks) || 1,
+            explanation: q.explanation?.trim() || null,
+          };
+        }),
       };
       await api.post('/quizzes/', payload);
       onSaved();
@@ -347,6 +387,19 @@ export default function QuizBuilderModal({ classId, onClose, onSaved }) {
                 </span>
               </h3>
 
+              {classQuizzes.length > 0 && (
+                <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginBottom: '0.75rem', flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: '0.82rem', color: 'var(--text-secondary)' }}>Reuse questions from</span>
+                  <select className="input-field" style={{ width: 'auto', flex: '1 1 200px' }} value={importFrom} onChange={e => setImportFrom(e.target.value)}>
+                    <option value="">choose a quiz of this class...</option>
+                    {classQuizzes.map(z => <option key={z.quiz_id} value={z.quiz_id}>{z.title} ({z.question_count} q)</option>)}
+                  </select>
+                  <button className="btn-secondary" onClick={importQuestions} disabled={!importFrom} style={{ padding: '0.4rem 0.7rem', fontSize: '0.82rem' }}>
+                    Import
+                  </button>
+                </div>
+              )}
+
               {questions.map((q, idx) => (
                 <QuestionEditor
                   key={idx}
@@ -373,6 +426,13 @@ export default function QuizBuilderModal({ classId, onClose, onSaved }) {
                   style={{ flex: 1, justifyContent: 'center' }}
                 >
                   <Plus size={16} /> Add True / False
+                </button>
+                <button
+                  onClick={() => setQuestions(qs => [...qs, blankQuestion('short_answer')])}
+                  className="btn-secondary"
+                  style={{ flex: 1, justifyContent: 'center' }}
+                >
+                  <Plus size={16} /> Add Short answer
                 </button>
               </div>
             </div>
@@ -495,12 +555,16 @@ function CheckboxLabel({ checked, onChange, children }) {
 function QuestionEditor({ q, index, onChange, onOptionChange, onRemove, canRemove }) {
   const [expanded, setExpanded] = useState(true);
   const isTrueFalse = (q.type || 'mcq') === 'true_false';
+  const isShort = (q.type || 'mcq') === 'short_answer';
+  const accepted = (q.accepted_answers && q.accepted_answers.length) ? q.accepted_answers : [''];
   const changeType = (type) => {
     if (type === (q.type || 'mcq')) return;
     if (type === 'true_false') {
-      onChange({ type, options: ['True', 'False'], correct_index: Math.min(q.correct_index || 0, 1) });
+      onChange({ type, options: ['True', 'False'], correct_index: Math.min(q.correct_index || 0, 1), accepted_answers: null });
+    } else if (type === 'short_answer') {
+      onChange({ type, options: [], correct_index: null, accepted_answers: accepted });
     } else {
-      onChange({ type: 'mcq', options: ['', '', '', ''], correct_index: 0 });
+      onChange({ type: 'mcq', options: ['', '', '', ''], correct_index: 0, accepted_answers: null });
     }
   };
   return (
@@ -517,6 +581,7 @@ function QuestionEditor({ q, index, onChange, onOptionChange, onRemove, canRemov
           >
             <option value="mcq">MCQ</option>
             <option value="true_false">True / False</option>
+            <option value="short_answer">Short answer</option>
           </select>
           <button onClick={() => setExpanded(e => !e)} className="btn-secondary" style={{ padding: '0.3rem 0.5rem' }}>
             {expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
@@ -540,6 +605,32 @@ function QuestionEditor({ q, index, onChange, onOptionChange, onRemove, canRemov
             style={{ resize: 'vertical', fontFamily: 'inherit', marginBottom: '0.5rem' }}
           />
 
+          {isShort ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', marginBottom: '0.5rem' }}>
+              <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+                Accepted answers (any of these counts; letter case, spacing and punctuation are ignored)
+              </span>
+              {accepted.map((ans, i) => (
+                <div key={i} style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                  <input
+                    type="text"
+                    className="input-field"
+                    value={ans}
+                    placeholder={i === 0 ? 'Model answer' : 'Alternative wording'}
+                    onChange={e => onChange({ accepted_answers: accepted.map((a, j) => (j === i ? e.target.value : a)) })}
+                  />
+                  {accepted.length > 1 && (
+                    <button onClick={() => onChange({ accepted_answers: accepted.filter((_, j) => j !== i) })} className="btn-secondary" style={{ padding: '0.3rem 0.5rem', color: '#DC2626' }}>
+                      <Trash2 size={14} />
+                    </button>
+                  )}
+                </div>
+              ))}
+              <button onClick={() => onChange({ accepted_answers: [...accepted, ''] })} className="btn-secondary" style={{ alignSelf: 'flex-start', padding: '0.3rem 0.6rem', fontSize: '0.8rem' }}>
+                <Plus size={14} /> Alternative answer
+              </button>
+            </div>
+          ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', marginBottom: '0.5rem' }}>
             {q.options.map((opt, i) => (
               <div key={i} style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
@@ -574,6 +665,7 @@ function QuestionEditor({ q, index, onChange, onOptionChange, onRemove, canRemov
               </div>
             ))}
           </div>
+          )}
 
           <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr', gap: '0.5rem' }}>
             <div>

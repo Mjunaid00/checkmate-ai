@@ -61,3 +61,6 @@ docs/testvideo/
 # Not published: screenshots (some show login screens) and old run notes
 docs/screen_shorts/
 previous-run instruction/
+
+# Shareable zips built by scripts/make_share_package.py
+dist-share/

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import { FileCheck, Target, Activity, ChevronDown, ChevronUp, Plus, Users, FileText, Clock, Eye, Trash2, Pencil, BarChart3, MessageSquare, Edit3, Shield, AlertTriangle, Sparkles, ScanLine } from 'lucide-react';
+import { FileCheck, Target, Activity, ChevronDown, ChevronUp, Plus, Users, FileText, Clock, Eye, Trash2, Pencil, BarChart3, MessageSquare, Edit3, Shield, AlertTriangle, Sparkles, ScanLine, RotateCcw } from 'lucide-react';
 import api from '../services/api';
 import UploadWidget from '../components/UploadWidget';
 import EditClassModal from '../components/EditClassModal';
@@ -93,6 +93,17 @@ export default function TeacherDashboard() {
       fetchData();
     } catch (err) {
       console.error(err);
+    }
+  };
+
+  const allowResubmission = async (sub) => {
+    const reason = window.prompt('Allow this student to submit again? The current submission and its file will be deleted.\nReason (recorded in the audit log):');
+    if (!reason || reason.trim().length < 3) return;
+    try {
+      await api.post(`/submissions/${sub.submission_id}/allow-resubmission`, { reason: reason.trim() });
+      refreshSelectedAssignmentSubmissions();
+    } catch (err) {
+      window.alert(err.response?.data?.detail || 'Could not allow a resubmission');
     }
   };
 
@@ -592,6 +603,14 @@ export default function TeacherDashboard() {
                             title="Manually grade / override"
                           >
                             <Edit3 size={14} /> Grade
+                          </button>
+                          <button
+                            className="btn-secondary"
+                            onClick={() => allowResubmission(ex)}
+                            style={{ padding: "0.3rem 0.6rem", fontSize: "0.8rem", display: "flex", alignItems: "center", gap: "0.3rem" }}
+                            title="Delete this submission so the student can upload again (recorded in the audit log)"
+                          >
+                            <RotateCcw size={14} /> Allow resubmit
                           </button>
                           <button
                             className="btn-secondary"
