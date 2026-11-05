@@ -6,7 +6,7 @@ import OMRUploadModal from './OMRUploadModal';
 import OMRResultsModal from './OMRResultsModal';
 import { formatDate } from '../utils/dateFormat';
 
-export default function OMRList({ classId, isStudent }) {
+export default function OMRList({ classId, isStudent, refreshKey = 0 }) {
   const [templates, setTemplates] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showBuilder, setShowBuilder] = useState(false);
@@ -30,7 +30,7 @@ export default function OMRList({ classId, isStudent }) {
     }
   };
 
-  useEffect(() => { fetchTemplates(); }, [classId]);
+  useEffect(() => { fetchTemplates(); }, [classId, refreshKey]);
 
   const handleDelete = async (templateId) => {
     if (!window.confirm('Delete this OMR template and all its submissions?')) return;

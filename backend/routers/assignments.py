@@ -7,6 +7,7 @@ from pathlib import Path
 from bson import ObjectId
 
 from config import UPLOAD_DIR, relative_upload_path
+from services.student_safe import student_safe_assignment
 from core.timeutil import parse_deadline
 from database import get_db
 from models.school import AssignmentInDB, AssignmentOut
@@ -188,4 +189,7 @@ async def list_assignments(
 
     cursor = db["assignments"].find({"class_id": class_id}).sort("created_at", -1)
     results = await cursor.to_list(length=100)
-    return [map_assignment(a) for a in results]
+    mapped = [map_assignment(a) for a in results]
+    if current_user["role"] == "student":
+        mapped = [student_safe_assignment(m) for m in mapped]  # grading prompt is teacher-only
+    return mapped

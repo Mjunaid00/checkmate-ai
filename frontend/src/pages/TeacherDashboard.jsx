@@ -1,12 +1,14 @@
 import { useState, useEffect } from 'react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import { FileCheck, Target, Activity, ChevronDown, ChevronUp, Plus, Users, FileText, Clock, Eye, Trash2, Pencil, BarChart3, MessageSquare, Edit3, Shield, AlertTriangle } from 'lucide-react';
+import { FileCheck, Target, Activity, ChevronDown, ChevronUp, Plus, Users, FileText, Clock, Eye, Trash2, Pencil, BarChart3, MessageSquare, Edit3, Shield, AlertTriangle, Sparkles, ScanLine } from 'lucide-react';
 import api from '../services/api';
 import UploadWidget from '../components/UploadWidget';
 import EditClassModal from '../components/EditClassModal';
 import ClassReportModal from '../components/ClassReportModal';
 import QuizList from '../components/QuizList';
 import OMRList from '../components/OMRList';
+import QuizBuilderModal from '../components/QuizBuilderModal';
+import OMRTemplateModal from '../components/OMRTemplateModal';
 import MessagesPanel from '../components/MessagesPanel';
 import ManualGradeModal from '../components/ManualGradeModal';
 import ClassMessagesModal from '../components/ClassMessagesModal';
@@ -26,6 +28,9 @@ export default function TeacherDashboard() {
   const [newClassName, setNewClassName] = useState('');
   const [newMaxStudents, setNewMaxStudents] = useState('');
   const [activeClassToUpload, setActiveClassToUpload] = useState(null);
+  const [quizClass, setQuizClass] = useState(null);   // class id for the quiz builder
+  const [omrClass, setOmrClass] = useState(null);     // class id for the OMR template modal
+  const [listsVersion, setListsVersion] = useState(0); // bumps to refresh QuizList / OMRList
   const [editingClass, setEditingClass] = useState(null); // full class object for modal
   const [reportingClass, setReportingClass] = useState(null); // class to show report for
   const [classChats, setClassChats] = useState(null);
@@ -222,6 +227,28 @@ export default function TeacherDashboard() {
         />
       )}
 
+      {quizClass && (
+        <QuizBuilderModal
+          classId={quizClass}
+          onClose={() => setQuizClass(null)}
+          onSaved={() => {
+            setListsVersion(v => v + 1);
+            if (selectedClass !== quizClass) handleClassSelect(quizClass);
+          }}
+        />
+      )}
+
+      {omrClass && (
+        <OMRTemplateModal
+          classId={omrClass}
+          onClose={() => setOmrClass(null)}
+          onSaved={() => {
+            setListsVersion(v => v + 1);
+            if (selectedClass !== omrClass) handleClassSelect(omrClass);
+          }}
+        />
+      )}
+
       {activeClassToUpload && (
         <UploadWidget
           classId={activeClassToUpload}
@@ -234,7 +261,7 @@ export default function TeacherDashboard() {
         />
       )}
 
-      <WelcomeHeader title="Teacher Dashboard" subtitle="Manage classes, assignments, grading prompts, and deadlines." />
+      <WelcomeHeader title="Teacher Dashboard" subtitle="Manage classes, assignments, quizzes, OMR sheets, grading prompts, and deadlines." />
 
 
       {/* ── Stats ────────────────────────────────────── */}
@@ -332,6 +359,22 @@ export default function TeacherDashboard() {
                   onClick={(e) => { e.stopPropagation(); setActiveClassToUpload(c.class_id); }}
                 >
                   <Plus size={14} /> Assignment
+                </button>
+                <button
+                  className="btn-secondary"
+                  style={{ flex: '1 1 auto', display: 'flex', justifyContent: 'center', gap: '0.4rem', fontSize: '0.82rem', minWidth: '90px' }}
+                  title="Create a quiz (AI-generated or manual, MCQ and true/false)"
+                  onClick={(e) => { e.stopPropagation(); setQuizClass(c.class_id); }}
+                >
+                  <Sparkles size={14} /> Quiz
+                </button>
+                <button
+                  className="btn-secondary"
+                  style={{ flex: '1 1 auto', display: 'flex', justifyContent: 'center', gap: '0.4rem', fontSize: '0.82rem', minWidth: '90px' }}
+                  title="Create an OMR answer-sheet template"
+                  onClick={(e) => { e.stopPropagation(); setOmrClass(c.class_id); }}
+                >
+                  <ScanLine size={14} /> OMR sheet
                 </button>
                 <button
                   className="btn-secondary"
@@ -433,14 +476,14 @@ export default function TeacherDashboard() {
       {/* ── Quizzes for Selected Class ────────────────── */}
       {selectedClass && (
         <section style={{ marginBottom: '2rem' }}>
-          <QuizList classId={selectedClass} isStudent={false} />
+          <QuizList classId={selectedClass} isStudent={false} refreshKey={listsVersion} />
         </section>
       )}
 
       {/* ── OMR Sheets for Selected Class ─────────────── */}
       {selectedClass && (
         <section style={{ marginBottom: '2rem' }}>
-          <OMRList classId={selectedClass} isStudent={false} />
+          <OMRList classId={selectedClass} isStudent={false} refreshKey={listsVersion} />
         </section>
       )}
 

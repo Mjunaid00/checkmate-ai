@@ -503,14 +503,20 @@ function ExplainableFeedbackPanel({ feedback, summary }) {
           <strong style={{fontSize: "0.9rem", color: "var(--text-secondary)"}}>
             Keyword Coverage: {xai.keyword_analysis.keyword_coverage}%
           </strong>
-          <div style={{display: "flex", gap: "0.4rem", flexWrap: "wrap", marginTop: "0.5rem"}}>
-            {xai.keyword_analysis.matched_keywords?.map((kw, i) => (
-              <span key={i} style={{padding: "0.2rem 0.5rem", borderRadius: "4px", fontSize: "0.75rem", background: "#D1FAE5", color: "#059669"}}>{kw}</span>
-            ))}
-            {xai.keyword_analysis.missing_keywords?.map((kw, i) => (
-              <span key={i} style={{padding: "0.2rem 0.5rem", borderRadius: "4px", fontSize: "0.75rem", background: "#FEE2E2", color: "#DC2626", textDecoration: "line-through"}}>{kw}</span>
-            ))}
-          </div>
+          {xai.keyword_analysis.hidden_until_deadline ? (
+            <p className="text-muted" style={{fontSize: "0.78rem", marginTop: "0.35rem"}}>
+              The matched and missing keywords become visible after the assignment deadline.
+            </p>
+          ) : (
+            <div style={{display: "flex", gap: "0.4rem", flexWrap: "wrap", marginTop: "0.5rem"}}>
+              {xai.keyword_analysis.matched_keywords?.map((kw, i) => (
+                <span key={i} style={{padding: "0.2rem 0.5rem", borderRadius: "4px", fontSize: "0.75rem", background: "#D1FAE5", color: "#059669"}}>{kw}</span>
+              ))}
+              {xai.keyword_analysis.missing_keywords?.map((kw, i) => (
+                <span key={i} style={{padding: "0.2rem 0.5rem", borderRadius: "4px", fontSize: "0.75rem", background: "#FEE2E2", color: "#DC2626", textDecoration: "line-through"}}>{kw}</span>
+              ))}
+            </div>
+          )}
         </div>
       )}
 

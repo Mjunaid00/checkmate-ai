@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import { Users, FileText, ClipboardCheck, ScanLine, ShieldAlert, TrendingUp, Award, Download, BarChart3 } from 'lucide-react';
 import api from '../services/api';
 import { formatDateShort } from '../utils/dateFormat';
@@ -53,6 +53,18 @@ export default function Analytics() {
   if (!data) return null;
 
   const { totals, averages, class_averages, submission_timeline } = data;
+  const distribution = data.score_distribution || null;
+  const weakQuestions = data.weak_questions || [];
+  // One row per grade band with the three assessment kinds side by side.
+  const distributionRows = distribution
+    ? distribution.submissions.map((b, i) => ({
+        range: b.range,
+        Assignments: b.count,
+        Quizzes: distribution.quizzes[i]?.count ?? 0,
+        OMR: distribution.omr[i]?.count ?? 0,
+      }))
+    : [];
+  const hasDistribution = distributionRows.some(r => r.Assignments + r.Quizzes + r.OMR > 0);
 
   return (
     <div className="dashboard-wrapper fade-in">
@@ -148,6 +160,66 @@ export default function Analytics() {
         </section>
       )}
 
+      {/* ── Score distribution ─────────────────────────────────── */}
+      {hasDistribution && (
+        <section className="chart-section glass-panel" style={{ marginBottom: '2rem' }}>
+          <h3 className="section-title">Score Distribution</h3>
+          <p className="text-muted" style={{ fontSize: '0.82rem', marginTop: '-0.5rem', marginBottom: '0.75rem' }}>
+            How many results fall into each grade band, across all your classes.
+          </p>
+          <div className="chart-container">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={distributionRows}>
+                <XAxis dataKey="range" stroke="var(--text-secondary)" fontSize={11} tickLine={false} axisLine={false} />
+                <YAxis stroke="var(--text-secondary)" fontSize={11} tickLine={false} axisLine={false} allowDecimals={false} />
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border-color)" />
+                <Tooltip contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: 'var(--shadow-md)', background: 'var(--bg-secondary)' }} />
+                <Legend />
+                <Bar dataKey="Assignments" fill="#10B981" radius={[6, 6, 0, 0]} />
+                <Bar dataKey="Quizzes" fill="#3B82F6" radius={[6, 6, 0, 0]} />
+                <Bar dataKey="OMR" fill="#EC4899" radius={[6, 6, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </section>
+      )}
+
+      {/* ── Weakest quiz questions ─────────────────────────────── */}
+      {weakQuestions.length > 0 && (
+        <section className="table-section glass-panel" style={{ marginBottom: '2rem' }}>
+          <h3 className="section-title">Questions Students Struggle With</h3>
+          <p className="text-muted" style={{ fontSize: '0.82rem', marginTop: '-0.5rem', marginBottom: '0.75rem' }}>
+            Lowest correct rates across your quizzes - the concepts worth revisiting in class.
+          </p>
+          <div className="table-wrapper">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Quiz</th>
+                  <th>Question</th>
+                  <th>Attempts</th>
+                  <th>Correct</th>
+                </tr>
+              </thead>
+              <tbody>
+                {weakQuestions.map(w => (
+                  <tr key={`${w.quiz_id}-${w.question_index}`}>
+                    <td><strong>{w.quiz_title}</strong></td>
+                    <td>Q{w.question_index + 1}. {w.question_text}</td>
+                    <td>{w.attempts}</td>
+                    <td>
+                      <span style={{ fontWeight: 600, color: w.correct_rate >= 70 ? 'var(--success)' : w.correct_rate >= 40 ? 'var(--warning)' : 'var(--danger)' }}>
+                        {w.correct_rate}%
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
+
       {/* ── Per-class table with download ──────────────────────── */}
       <section className="table-section glass-panel">
         <h3 className="section-title">Per-Class Details</h3>
@@ -160,12 +232,14 @@ export default function Analytics() {
                 <th>Assignments</th>
                 <th>Submissions</th>
                 <th>Average</th>
+                <th>Quizzes</th>
+                <th>Quiz avg</th>
                 <th>Download</th>
               </tr>
             </thead>
             <tbody>
               {class_averages.length === 0 && (
-                <tr><td colSpan="6" style={{ textAlign: 'center', padding: '2rem' }}>No classes yet.</td></tr>
+                <tr><td colSpan="8" style={{ textAlign: 'center', padding: '2rem' }}>No classes yet.</td></tr>
               )}
               {class_averages.map(c => (
                 <tr key={c.class_id}>
@@ -177,6 +251,14 @@ export default function Analytics() {
                     {c.average_score !== null ? (
                       <span style={{ fontWeight: 600, color: c.average_score >= 70 ? 'var(--success)' : c.average_score >= 50 ? 'var(--warning)' : 'var(--danger)' }}>
                         {c.average_score}%
+                      </span>
+                    ) : '-'}
+                  </td>
+                  <td>{c.quizzes ?? 0}</td>
+                  <td>
+                    {c.quiz_average !== null && c.quiz_average !== undefined ? (
+                      <span style={{ fontWeight: 600, color: c.quiz_average >= 70 ? 'var(--success)' : c.quiz_average >= 50 ? 'var(--warning)' : 'var(--danger)' }}>
+                        {c.quiz_average}%
                       </span>
                     ) : '-'}
                   </td>

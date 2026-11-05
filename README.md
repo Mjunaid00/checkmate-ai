@@ -15,6 +15,25 @@ AI-powered exam grading platform with Explainable AI (XAI) feedback, built for t
 * **Theme Support** - Light, Dark, Gray, and Night Light modes
 * **Class Management** - Create classes, set deadlines, upload rubrics with grading prompts
 
+### Quizzes, submission lock and analytics (update 2026-11-05)
+
+* **Question types**: multiple-choice (2-6 options) and true/false, written by hand or generated
+  by the local model from a topic or from an uploaded **PDF, TXT, MD or DOCX** reference document,
+  with optional subject, grade level and learning objectives (`POST /quizzes/generate`,
+  `POST /quizzes/generate-from-document`).
+* **One attempt, server-timed**: `/quizzes/{id}/start` records the start on the server (a page
+  refresh keeps the same clock and question order); `/submit` is refused after the time limit or
+  the deadline (2-minute grace) and after a first submission; the answer key is locked once a
+  student has attempted the quiz.
+* **Analytics**: score distribution per grade band (assignments, quizzes, OMR), the quiz
+  questions students most often get wrong, per-class quiz averages; analytics routes check that
+  the class or student belongs to the teacher.
+* **Student-safe responses**: students never receive the grading prompt, and rubric keyword
+  lists in the XAI feedback appear only after the assignment deadline.
+* Teachers can create an assignment, a quiz or an OMR sheet straight from a class card.
+* Checks: `python -m pytest tests` in `backend/` (67 tests) and `python scripts\e2e_quiz.py --db <throwaway db>`
+  against a running stack started with `DATABASE_NAME=<throwaway db>`.
+
 ## Tech Stack
 
 | Layer    | Technology                                    |

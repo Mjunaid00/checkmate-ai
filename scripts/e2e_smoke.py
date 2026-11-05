@@ -50,7 +50,10 @@ ANSWER_LINES = [
 ]
 
 tag = uuid.uuid4().hex[:6]
-c = httpx.Client(timeout=120)
+# Vision OCR on the submission upload runs inside the request; on a loaded laptop it can take
+# several minutes, so the per-request timeout is generous and can be raised with E2E_TIMEOUT.
+import os
+c = httpx.Client(timeout=float(os.environ.get("E2E_TIMEOUT", "600")))
 t0 = time.time()
 
 

@@ -445,7 +445,7 @@ if (-not $Python) {
     }
 
     # 2c. can the backend import everything it needs?
-    $mods = @('fastapi', 'uvicorn', 'motor', 'pymongo', 'httpx', 'PIL', 'dotenv', 'jose', 'passlib', 'multipart', 'pydantic', 'fitz', 'pypdfium2')
+    $mods = @('fastapi', 'uvicorn', 'motor', 'pymongo', 'httpx', 'PIL', 'dotenv', 'jose', 'passlib', 'multipart', 'pydantic', 'fitz', 'pypdfium2', 'docx')
     if ($OcrBackend -eq 'chandra') { $mods += @('torch', 'transformers', 'chandra') }
     $imp = Get-CheckJson 'imports' ($mods -join ' ')
     if ($imp -and $imp.ok) {

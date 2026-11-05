@@ -1,10 +1,162 @@
 """
-AI Quiz Generator — uses LM Studio to generate MCQ questions
-from a topic/description or from extracted document text.
+AI question generator - asks the LM Studio model for multiple-choice and/or true/false
+questions about a topic, optionally grounded in uploaded reference material and shaped by
+grade level, subject and learning objectives.
+
+build_prompt() and clean_generated_questions() are pure and unit-tested; only
+generate_quiz_questions() talks to the model.
 """
-from typing import List, Dict, Optional
+from typing import Dict, List, Optional
 
 from core.llm import chat_completion, extract_json_object
+
+SOURCE_TEXT_LIMIT = 6000
+QUESTION_TYPES = ("mcq", "true_false", "mixed")
+TRUE_FALSE_OPTIONS = ["True", "False"]
+MAX_QUESTIONS = 25
+
+
+class GenerationError(RuntimeError):
+    """The model did not answer or did not return usable JSON."""
+
+
+def build_prompt(topic: str, num_questions: int, difficulty: str, question_type: str = "mcq",
+                 source_text: Optional[str] = None, grade_level: Optional[str] = None,
+                 subject: Optional[str] = None, objectives: Optional[str] = None) -> str:
+    num_questions = max(1, min(int(num_questions or 1), MAX_QUESTIONS))
+    question_type = question_type if question_type in QUESTION_TYPES else "mcq"
+
+    context_lines = []
+    if subject and subject.strip():
+        context_lines.append(f"Subject: {subject.strip()}")
+    if grade_level and grade_level.strip():
+        context_lines.append(f"Grade level / audience: {grade_level.strip()}")
+    if objectives and objectives.strip():
+        context_lines.append(f"Learning objectives the questions must assess:\n{objectives.strip()}")
+    context = ("\n" + "\n".join(context_lines)) if context_lines else ""
+
+    material = ""
+    if source_text and source_text.strip():
+        material = f"\n\nBase the questions ONLY on this reference material:\n---\n{source_text.strip()[:SOURCE_TEXT_LIMIT]}\n---\n"
+
+    if question_type == "true_false":
+        kind = f"Generate {num_questions} true/false questions about: {topic}"
+        rules = (
+            '- Each question is a single clear statement; "options" MUST be exactly ["True", "False"]\n'
+            '- "type" MUST be "true_false"; correct_index is 0 when the statement is true, 1 when it is false\n'
+            "- Mix true and false statements; avoid trick wording\n"
+        )
+        example_type, example_options, example_ci = "true_false", '["True", "False"]', "<0|1>"
+    elif question_type == "mixed":
+        kind = f"Generate {num_questions} questions about: {topic} - a mix of multiple-choice and true/false"
+        rules = (
+            '- Multiple-choice questions: "type" "mcq", exactly 4 options, exactly ONE correct, plausible distractors\n'
+            '- True/false questions: "type" "true_false", "options" exactly ["True", "False"], correct_index 0 for true / 1 for false\n'
+            "- Roughly half of each kind\n"
+        )
+        example_type, example_options, example_ci = '<"mcq"|"true_false">', '["<option A>", "<option B>", "<option C>", "<option D>"]', "<index of the correct option>"
+    else:
+        kind = f"Generate {num_questions} multiple-choice questions about: {topic}"
+        rules = (
+            '- "type" MUST be "mcq"; each question MUST have exactly 4 options\n'
+            "- Mark exactly ONE option as correct\n"
+            "- Make distractors plausible but clearly wrong on close reading\n"
+        )
+        example_type, example_options, example_ci = "mcq", '["<option A>", "<option B>", "<option C>", "<option D>"]', "<0|1|2|3>"
+
+    return (
+        f"{kind}\n"
+        f"Difficulty: {difficulty}{context}{material}\n\n"
+        "Rules:\n"
+        f"{rules}"
+        "- Include a brief explanation of the correct answer\n"
+        "- Each question is worth 1 mark unless clearly harder\n\n"
+        "Return ONLY this JSON structure:\n"
+        "{\n"
+        '  "questions": [\n'
+        "    {\n"
+        f'      "type": "{example_type}",\n'
+        '      "question_text": "<the question>",\n'
+        f'      "options": {example_options},\n'
+        f'      "correct_index": {example_ci},\n'
+        '      "marks": 1,\n'
+        '      "explanation": "<brief reason why the correct answer is right>"\n'
+        "    }\n"
+        "  ]\n"
+        "}"
+    )
+
+
+def _infer_type(q: Dict) -> str:
+    explicit = str(q.get("type") or "").strip().lower()
+    if explicit in ("mcq", "true_false"):
+        return explicit
+    options = q.get("options")
+    if isinstance(options, list) and len(options) == 2 and {str(o).strip().lower() for o in options} == {"true", "false"}:
+        return "true_false"
+    return "mcq"
+
+
+def _true_false_index(value) -> Optional[int]:
+    if isinstance(value, bool):
+        return 0 if value else 1
+    if isinstance(value, int) and value in (0, 1):
+        return value
+    if isinstance(value, str):
+        v = value.strip().lower()
+        if v in ("0", "true", "t"):
+            return 0
+        if v in ("1", "false", "f"):
+            return 1
+    return None
+
+
+def clean_generated_questions(result: Dict, question_type: str = "mcq") -> List[Dict]:
+    """Keep only well-formed questions of the requested kind; normalise their shape."""
+    questions = result.get("questions", []) if isinstance(result, dict) else []
+    if not isinstance(questions, list):
+        return []
+    valid: List[Dict] = []
+    for q in questions:
+        if not isinstance(q, dict) or not str(q.get("question_text") or "").strip():
+            continue
+        qtype = _infer_type(q)
+        if question_type == "mcq" and qtype != "mcq":
+            continue
+        if question_type == "true_false" and qtype != "true_false":
+            continue
+        options = q.get("options")
+        if not isinstance(options, list):
+            continue
+        if qtype == "true_false":
+            if len(options) != 2 or {str(o).strip().lower() for o in options} != {"true", "false"}:
+                continue
+            ci = _true_false_index(q.get("correct_index"))
+            if ci is None:
+                continue
+            clean_options = list(TRUE_FALSE_OPTIONS)
+        else:
+            if len(options) != 4:
+                continue
+            ci = q.get("correct_index")
+            if isinstance(ci, bool) or not isinstance(ci, int) or ci < 0 or ci > 3:
+                continue
+            clean_options = [str(o).strip() for o in options]
+            if any(not o for o in clean_options):
+                continue
+        try:
+            marks = max(1, int(q.get("marks", 1)))
+        except (TypeError, ValueError):
+            marks = 1
+        valid.append({
+            "type": qtype,
+            "question_text": str(q["question_text"]).strip(),
+            "options": clean_options,
+            "correct_index": ci,
+            "marks": marks,
+            "explanation": str(q.get("explanation") or "").strip() or None,
+        })
+    return valid
 
 
 async def generate_quiz_questions(
@@ -12,86 +164,22 @@ async def generate_quiz_questions(
     num_questions: int = 5,
     difficulty: str = "medium",
     source_text: Optional[str] = None,
+    question_type: str = "mcq",
+    grade_level: Optional[str] = None,
+    subject: Optional[str] = None,
+    objectives: Optional[str] = None,
 ) -> List[Dict]:
-    """
-    Generate MCQ questions using the LLM.
-    Returns a list of {question_text, options[4], correct_index, marks, explanation}.
-    """
-    num_questions = max(1, min(num_questions, 25))
-
-    context = ""
-    if source_text:
-        # Limit source text to keep prompt manageable
-        context = f"\n\nBase the questions on this material:\n---\n{source_text[:6000]}\n---\n"
-
-    system_prompt = (
-        "You are an expert exam writer. You ONLY return valid JSON, never any other text or markdown."
-    )
-
-    user_prompt = (
-        f"Generate {num_questions} multiple-choice questions about: {topic}\n"
-        f"Difficulty: {difficulty}{context}\n\n"
-        "Rules:\n"
-        "- Each question MUST have exactly 4 options\n"
-        "- Mark exactly ONE option as correct\n"
-        "- Make distractors plausible but clearly wrong on close reading\n"
-        "- Include a brief explanation for the correct answer\n"
-        "- Each question worth 1 mark\n\n"
-        "Return ONLY this JSON structure:\n"
-        '{\n'
-        '  "questions": [\n'
-        '    {\n'
-        '      "question_text": "<the question>",\n'
-        '      "options": ["<option A>", "<option B>", "<option C>", "<option D>"],\n'
-        '      "correct_index": <0|1|2|3>,\n'
-        '      "marks": 1,\n'
-        '      "explanation": "<brief reason why the correct answer is right>"\n'
-        '    }\n'
-        '  ]\n'
-        '}'
-    )
-
+    """Ask the model and return cleaned questions. Raises GenerationError when the model fails."""
+    prompt = build_prompt(topic, num_questions, difficulty, question_type, source_text, grade_level, subject, objectives)
     messages = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": user_prompt},
+        {"role": "system", "content": "You are an expert exam writer. You ONLY return valid JSON, never any other text or markdown."},
+        {"role": "user", "content": prompt},
     ]
-
     try:
         raw = await chat_completion(messages, temperature=0.4, max_tokens=4096, timeout=180.0)
         result = extract_json_object(raw)
     except ValueError as e:
-        print(f"Quiz generator returned invalid JSON: {e}")
-        raise RuntimeError(f"AI returned invalid JSON: {e}") from e
+        raise GenerationError(f"The AI returned invalid JSON: {e}") from e
     except Exception as e:
-        print(f"Error generating quiz via LM Studio: {e}")
-        raise RuntimeError(f"Failed to generate quiz: {e}") from e
-
-    questions = result.get("questions", [])
-    if not isinstance(questions, list):
-        return []
-
-    # Validate and clean questions
-    valid = []
-    for q in questions:
-        if not isinstance(q, dict):
-            continue
-        if not isinstance(q.get("options"), list) or len(q["options"]) != 4:
-            continue
-        ci = q.get("correct_index")
-        if not isinstance(ci, int) or ci < 0 or ci > 3:
-            continue
-        if not q.get("question_text"):
-            continue
-        try:
-            marks = max(1, int(q.get("marks", 1)))
-        except (TypeError, ValueError):
-            marks = 1
-        valid.append({
-            "question_text": str(q["question_text"]).strip(),
-            "options": [str(o).strip() for o in q["options"]],
-            "correct_index": ci,
-            "marks": marks,
-            "explanation": str(q.get("explanation", "")).strip() or None,
-        })
-
-    return valid
+        raise GenerationError(f"Question generation failed: {e}") from e
+    return clean_generated_questions(result, question_type if question_type in QUESTION_TYPES else "mcq")

@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from bson import ObjectId
 from database import get_db
 from routers.deps import get_current_user, get_current_teacher, get_current_student
+from services.analytics_helpers import score_buckets, weak_questions
 from services.monitoring import (
     get_student_analytics,
     predict_performance,
@@ -14,6 +15,26 @@ from services.monitoring import (
 )
 
 router = APIRouter(prefix="/analytics", tags=["analytics"])
+
+
+async def _assert_class_owned(db, class_id: str, teacher_id: str) -> dict:
+    if not ObjectId.is_valid(class_id):
+        raise HTTPException(status_code=400, detail="Invalid class_id")
+    cls = await db["classes"].find_one({"_id": ObjectId(class_id), "teacher_id": teacher_id})
+    if not cls:
+        raise HTTPException(status_code=404, detail="Class not found")
+    return cls
+
+
+async def _assert_teacher_can_view_student(db, teacher_id: str, student_id: str) -> None:
+    """A teacher may only look at students enrolled in one of their own classes."""
+    classes = await db["classes"].find({"teacher_id": teacher_id}, {"_id": 1}).to_list(length=500)
+    class_ids = [str(c["_id"]) for c in classes]
+    enrolled = None
+    if class_ids:
+        enrolled = await db["enrollments"].find_one({"student_id": student_id, "class_id": {"$in": class_ids}})
+    if not enrolled:
+        raise HTTPException(status_code=404, detail="Student not found in your classes")
 
 
 @router.get("/student/me")
@@ -25,57 +46,8 @@ async def my_analytics(
     return await get_student_analytics(db, current_student["id"])
 
 
-@router.get("/student/{student_id}")
-async def student_analytics(
-    student_id: str,
-    current_teacher: dict = Depends(get_current_teacher),
-    db=Depends(get_db),
-):
-    """Teacher views a specific student's analytics."""
-    return await get_student_analytics(db, student_id)
-
-
-@router.get("/predict/me")
-async def my_prediction(
-    current_student: dict = Depends(get_current_student),
-    db=Depends(get_db),
-):
-    """Student views their performance prediction."""
-    return await predict_performance(db, current_student["id"])
-
-
-@router.get("/predict/{student_id}")
-async def student_prediction(
-    student_id: str,
-    current_teacher: dict = Depends(get_current_teacher),
-    db=Depends(get_db),
-):
-    """Teacher views a student's performance prediction."""
-    return await predict_performance(db, student_id)
-
-
-@router.get("/class/{class_id}")
-async def class_analytics(
-    class_id: str,
-    current_teacher: dict = Depends(get_current_teacher),
-    db=Depends(get_db),
-):
-    """Teacher views analytics for an entire class."""
-    if not ObjectId.is_valid(class_id):
-        raise HTTPException(status_code=400, detail="Invalid class_id")
-    return await get_class_analytics(db, class_id)
-
-
-@router.get("/alerts/{student_id}")
-async def student_alerts(
-    student_id: str,
-    current_teacher: dict = Depends(get_current_teacher),
-    db=Depends(get_db),
-):
-    """Teacher checks for suspicious behavior from a student."""
-    return await detect_suspicious_behavior(db, student_id)
-
-
+# Declared BEFORE /student/{student_id}: otherwise 'deadlines' is taken as a student id
+# and students get a 403 from the teacher-only route.
 @router.get("/student/deadlines")
 async def student_deadlines(
     current_student: dict = Depends(get_current_student),
@@ -212,6 +184,59 @@ async def student_deadlines(
     }
 
     return {"items": items, "stats": stats}
+
+
+@router.get("/student/{student_id}")
+async def student_analytics(
+    student_id: str,
+    current_teacher: dict = Depends(get_current_teacher),
+    db=Depends(get_db),
+):
+    """Teacher views a specific student's analytics."""
+    await _assert_teacher_can_view_student(db, current_teacher["id"], student_id)
+    return await get_student_analytics(db, student_id)
+
+
+@router.get("/predict/me")
+async def my_prediction(
+    current_student: dict = Depends(get_current_student),
+    db=Depends(get_db),
+):
+    """Student views their performance prediction."""
+    return await predict_performance(db, current_student["id"])
+
+
+@router.get("/predict/{student_id}")
+async def student_prediction(
+    student_id: str,
+    current_teacher: dict = Depends(get_current_teacher),
+    db=Depends(get_db),
+):
+    """Teacher views a student's performance prediction."""
+    await _assert_teacher_can_view_student(db, current_teacher["id"], student_id)
+    return await predict_performance(db, student_id)
+
+
+@router.get("/class/{class_id}")
+async def class_analytics(
+    class_id: str,
+    current_teacher: dict = Depends(get_current_teacher),
+    db=Depends(get_db),
+):
+    """Teacher views analytics for an entire class."""
+    await _assert_class_owned(db, class_id, current_teacher["id"])
+    return await get_class_analytics(db, class_id)
+
+
+@router.get("/alerts/{student_id}")
+async def student_alerts(
+    student_id: str,
+    current_teacher: dict = Depends(get_current_teacher),
+    db=Depends(get_db),
+):
+    """Teacher checks for suspicious behavior from a student."""
+    await _assert_teacher_can_view_student(db, current_teacher["id"], student_id)
+    return await detect_suspicious_behavior(db, student_id)
 
 
 @router.get("/teacher/deadlines")
@@ -421,6 +446,8 @@ async def teacher_overview(
         c_assign_ids = [str(a["_id"]) for a in c_assignments]
         c_subs_graded = [s for s in graded_subs if s["assignment_id"] in c_assign_ids]
         c_scores = [(s["score"] / max(s.get("total_marks", 1), 1)) * 100 for s in c_subs_graded]
+        c_quiz_ids = {str(q["_id"]) for q in quizzes if q.get("class_id") == cid}
+        c_quiz_scores = [(a["score"] / max(a.get("total_marks", 1), 1)) * 100 for a in quiz_attempts if a.get("quiz_id") in c_quiz_ids]
         class_averages.append({
             "class_id": cid,
             "class_name": c.get("name", ""),
@@ -428,6 +455,9 @@ async def teacher_overview(
             "assignments": len(c_assignments),
             "submissions": len(c_subs_graded),
             "average_score": round(sum(c_scores) / len(c_scores), 1) if c_scores else None,
+            "quizzes": len(c_quiz_ids),
+            "quiz_attempts": len(c_quiz_scores),
+            "quiz_average": round(sum(c_quiz_scores) / len(c_quiz_scores), 1) if c_quiz_scores else None,
         })
 
     # Plagiarism flags (from submissions where similarity_max > 0.3)
@@ -467,4 +497,11 @@ async def teacher_overview(
         },
         "class_averages": class_averages,
         "submission_timeline": timeline,
+        # How scores spread (grade bands) and which quiz questions most students get wrong.
+        "score_distribution": {
+            "submissions": score_buckets(sub_scores),
+            "quizzes": score_buckets(quiz_scores),
+            "omr": score_buckets(omr_scores),
+        },
+        "weak_questions": weak_questions(quizzes, quiz_attempts, limit=8),
     }

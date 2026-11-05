@@ -17,6 +17,7 @@ from config import (
     relative_upload_path,
 )
 from database import get_db
+from services.student_safe import redact_keyword_analysis
 from models.school import SubmissionOut
 from routers.deps import get_current_student, get_current_user, get_current_teacher
 from services.grading import process_exam_background
@@ -206,10 +207,16 @@ async def list_my_submissions(
     current_student: dict = Depends(get_current_student),
     db=Depends(get_db),
 ):
-    """Students see their own submissions."""
+    """Students see their own submissions (rubric keyword lists only after the deadline)."""
     cursor = db["submissions"].find({"student_id": current_student["id"]}).sort("created_at", -1)
     results = await cursor.to_list(length=100)
-    return [map_submission(s) for s in results]
+    a_ids = [ObjectId(x["assignment_id"]) for x in results if ObjectId.is_valid(str(x.get("assignment_id", "")))]
+    deadlines = {}
+    if a_ids:
+        for a in await db["assignments"].find({"_id": {"$in": a_ids}}, {"deadline": 1}).to_list(length=200):
+            deadlines[str(a["_id"])] = a.get("deadline")
+    now = datetime.utcnow()
+    return [redact_keyword_analysis(map_submission(x), deadlines.get(str(x.get("assignment_id"))), now) for x in results]
 
 
 @router.get("/assignment/{assignment_id}", response_model=list[SubmissionOut])

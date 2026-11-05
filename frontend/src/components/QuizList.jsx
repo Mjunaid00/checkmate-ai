@@ -6,7 +6,7 @@ import QuizBuilderModal from './QuizBuilderModal';
 import QuizEditModal from './QuizEditModal';
 import { formatDateTime } from '../utils/dateFormat';
 
-export default function QuizList({ classId, isStudent }) {
+export default function QuizList({ classId, isStudent, refreshKey = 0 }) {
   const navigate = useNavigate();
   const [quizzes, setQuizzes] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -31,7 +31,7 @@ export default function QuizList({ classId, isStudent }) {
 
   useEffect(() => {
     fetchQuizzes();
-  }, [classId]);
+  }, [classId, refreshKey]);
 
   const handleDelete = async (quizId) => {
     if (!window.confirm('Delete this quiz and all attempts?')) return;

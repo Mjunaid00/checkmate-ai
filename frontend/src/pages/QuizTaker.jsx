@@ -38,9 +38,14 @@ export default function QuizTaker() {
         const res = await api.post(`/quizzes/${quizId}/start`);
         if (cancelled) return;
         setQuiz(res.data);
-        const startMs = new Date(res.data.started_at).getTime();
-        const limitMs = res.data.time_limit_minutes * 60 * 1000;
-        const remaining = Math.max(0, Math.floor((startMs + limitMs - Date.now()) / 1000));
+        // The server owns the clock: seconds_left already accounts for the time limit,
+        // the deadline and any earlier start of this same attempt (page refresh).
+        let remaining = res.data.seconds_left;
+        if (typeof remaining !== 'number') {
+          const startMs = new Date(res.data.started_at).getTime();
+          const limitMs = res.data.time_limit_minutes * 60 * 1000;
+          remaining = Math.max(0, Math.floor((startMs + limitMs - Date.now()) / 1000));
+        }
         setTimeLeft(remaining);
 
         // Restore autosaved progress for this quiz

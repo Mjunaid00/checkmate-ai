@@ -29,7 +29,10 @@ async def get_current_user(token: str = Depends(oauth2_scheme), db = Depends(get
     user_data = await db["users"].find_one({"email": email})
     if user_data is None:
         raise credentials_exception
-    
+    # A deactivated account keeps a valid token until it expires: refuse it here too.
+    if user_data.get("is_active") is False:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="This account has been deactivated")
+
     # Map _id to id for UserOut compatibility
     user_data["id"] = str(user_data["_id"])
     return user_data

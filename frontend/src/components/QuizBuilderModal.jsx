@@ -27,13 +27,18 @@ export default function QuizBuilderModal({ classId, onClose, onSaved }) {
     topic: '',
     num_questions: 5,
     difficulty: 'medium',
+    question_type: 'mcq', // mcq | true_false | mixed
+    subject: '',
+    grade_level: '',
+    objectives: '',
   });
-  const [pdfFile, setPdfFile] = useState(null);
+  const [pdfFile, setPdfFile] = useState(null); // PDF, TXT, MD or DOCX reference material
 
-  function blankQuestion() {
+  function blankQuestion(type = 'mcq') {
     return {
+      type,
       question_text: '',
-      options: ['', '', '', ''],
+      options: type === 'true_false' ? ['True', 'False'] : ['', '', '', ''],
       correct_index: 0,
       marks: 1,
       explanation: '',
@@ -43,7 +48,7 @@ export default function QuizBuilderModal({ classId, onClose, onSaved }) {
   // ── AI Generation ────────────────────────────────────────
   const handleGenerateAI = async () => {
     if (!pdfFile && !aiForm.topic.trim()) {
-      setError('Enter a topic or upload a PDF to generate from.');
+      setError('Enter a topic or upload a PDF, TXT or DOCX file to generate from.');
       return;
     }
     setLoading(true);
@@ -57,10 +62,14 @@ export default function QuizBuilderModal({ classId, onClose, onSaved }) {
         if (aiForm.topic.trim()) form.append('topic', aiForm.topic.trim());
         form.append('num_questions', String(aiForm.num_questions));
         form.append('difficulty', aiForm.difficulty);
-        res = await api.post('/quizzes/generate-from-pdf', form, {
+        form.append('question_type', aiForm.question_type);
+        if (aiForm.subject.trim()) form.append('subject', aiForm.subject.trim());
+        if (aiForm.grade_level.trim()) form.append('grade_level', aiForm.grade_level.trim());
+        if (aiForm.objectives.trim()) form.append('objectives', aiForm.objectives.trim());
+        res = await api.post('/quizzes/generate-from-document', form, {
           headers: { 'Content-Type': 'multipart/form-data' },
         });
-        derivedTopic = res.data.topic || derivedTopic || pdfFile.name.replace(/\.pdf$/i, '');
+        derivedTopic = res.data.topic || derivedTopic || pdfFile.name.replace(/\.(pdf|txt|md|docx)$/i, '');
       } else {
         res = await api.post('/quizzes/generate', aiForm);
       }
@@ -117,7 +126,7 @@ export default function QuizBuilderModal({ classId, onClose, onSaved }) {
         setError(`Question ${i + 1}: all options must be filled`);
         return;
       }
-      if (q.correct_index < 0 || q.correct_index > 3) {
+      if (q.correct_index < 0 || q.correct_index >= q.options.length) {
         setError(`Question ${i + 1}: select a correct answer`);
         return;
       }
@@ -131,6 +140,7 @@ export default function QuizBuilderModal({ classId, onClose, onSaved }) {
         ...meta,
         deadline: toApiDatetime(meta.deadline) || null,
         questions: questions.map(q => ({
+          type: q.type || 'mcq',
           question_text: q.question_text.trim(),
           options: q.options.map(o => o.trim()),
           correct_index: q.correct_index,
@@ -157,7 +167,7 @@ export default function QuizBuilderModal({ classId, onClose, onSaved }) {
         <h2 style={{ marginBottom: '0.25rem' }}>Create Quiz</h2>
         <p className="text-secondary" style={{ fontSize: '0.9rem', marginBottom: '1.5rem' }}>
           {step === 'mode' && 'Choose how to create your quiz.'}
-          {step === 'ai' && 'AI will generate MCQ questions you can review and edit.'}
+          {step === 'ai' && 'AI will generate multiple-choice and/or true/false questions you can review and edit.'}
           {step === 'manual' && 'Add and edit questions manually.'}
           {step === 'review' && 'Review the generated questions, then add details and save.'}
         </p>
@@ -198,8 +208,55 @@ export default function QuizBuilderModal({ classId, onClose, onSaved }) {
               />
             </div>
 
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+              <div>
+                <Label>Question type</Label>
+                <select
+                  className="input-field"
+                  value={aiForm.question_type}
+                  onChange={e => setAiForm({ ...aiForm, question_type: e.target.value })}
+                >
+                  <option value="mcq">Multiple choice</option>
+                  <option value="true_false">True / False</option>
+                  <option value="mixed">Mixed (MCQ + True/False)</option>
+                </select>
+              </div>
+              <div>
+                <Label>Subject (optional)</Label>
+                <input
+                  type="text"
+                  className="input-field"
+                  placeholder="e.g. Biology"
+                  value={aiForm.subject}
+                  onChange={e => setAiForm({ ...aiForm, subject: e.target.value })}
+                />
+              </div>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '1rem' }}>
+              <div>
+                <Label>Grade level (optional)</Label>
+                <input
+                  type="text"
+                  className="input-field"
+                  placeholder="e.g. Grade 10, BS 2nd year"
+                  value={aiForm.grade_level}
+                  onChange={e => setAiForm({ ...aiForm, grade_level: e.target.value })}
+                />
+              </div>
+              <div>
+                <Label>Learning objectives (optional)</Label>
+                <input
+                  type="text"
+                  className="input-field"
+                  placeholder="What the questions should assess, e.g. explain osmosis; apply Ohm's law"
+                  value={aiForm.objectives}
+                  onChange={e => setAiForm({ ...aiForm, objectives: e.target.value })}
+                />
+              </div>
+            </div>
+
             <div>
-              <Label>Source PDF (optional)</Label>
+              <Label>Reference document (optional: PDF, TXT, DOCX)</Label>
               <div
                 onClick={() => document.getElementById('quizPdfUpload').click()}
                 style={{
@@ -216,7 +273,7 @@ export default function QuizBuilderModal({ classId, onClose, onSaved }) {
               >
                 <FileUp size={18} style={{ color: 'var(--accent-primary)' }} />
                 <span style={{ flex: 1 }}>
-                  {pdfFile ? pdfFile.name : 'Click to choose a PDF — questions will be generated from its text'}
+                  {pdfFile ? pdfFile.name : 'Click to choose a PDF, TXT or DOCX file — questions will be generated from its text'}
                 </span>
                 {pdfFile && (
                   <button
@@ -231,7 +288,7 @@ export default function QuizBuilderModal({ classId, onClose, onSaved }) {
                 <input
                   id="quizPdfUpload"
                   type="file"
-                  accept="application/pdf,.pdf"
+                  accept=".pdf,.txt,.md,.docx,application/pdf,text/plain,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
                   style={{ display: 'none' }}
                   onChange={(e) => {
                     const f = e.target.files?.[0] || null;
@@ -240,7 +297,7 @@ export default function QuizBuilderModal({ classId, onClose, onSaved }) {
                 />
               </div>
               <small style={{ color: 'var(--text-secondary)', fontSize: '0.72rem' }}>
-                Only typed (selectable) PDFs are supported. Scanned/handwritten PDFs need OCR and are not handled by this fast path.
+                PDFs must contain selectable text (scanned or handwritten PDFs are not supported here). TXT and DOCX files work as they are.
               </small>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
@@ -302,13 +359,22 @@ export default function QuizBuilderModal({ classId, onClose, onSaved }) {
                 />
               ))}
 
-              <button
-                onClick={addQuestion}
-                className="btn-secondary"
-                style={{ width: '100%', justifyContent: 'center', marginTop: '0.5rem' }}
-              >
-                <Plus size={16} /> Add Question
-              </button>
+              <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
+                <button
+                  onClick={addQuestion}
+                  className="btn-secondary"
+                  style={{ flex: 1, justifyContent: 'center' }}
+                >
+                  <Plus size={16} /> Add MCQ
+                </button>
+                <button
+                  onClick={() => setQuestions(qs => [...qs, blankQuestion('true_false')])}
+                  className="btn-secondary"
+                  style={{ flex: 1, justifyContent: 'center' }}
+                >
+                  <Plus size={16} /> Add True / False
+                </button>
+              </div>
             </div>
 
             <div className="modal-actions">
@@ -428,11 +494,30 @@ function CheckboxLabel({ checked, onChange, children }) {
 
 function QuestionEditor({ q, index, onChange, onOptionChange, onRemove, canRemove }) {
   const [expanded, setExpanded] = useState(true);
+  const isTrueFalse = (q.type || 'mcq') === 'true_false';
+  const changeType = (type) => {
+    if (type === (q.type || 'mcq')) return;
+    if (type === 'true_false') {
+      onChange({ type, options: ['True', 'False'], correct_index: Math.min(q.correct_index || 0, 1) });
+    } else {
+      onChange({ type: 'mcq', options: ['', '', '', ''], correct_index: 0 });
+    }
+  };
   return (
     <div style={{ padding: '1rem', borderRadius: '0.6rem', border: '1px solid var(--border-color)', background: 'var(--bg-tertiary)', marginBottom: '0.75rem' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: expanded ? '0.75rem' : 0 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: expanded ? '0.75rem' : 0, gap: '0.5rem' }}>
         <strong style={{ fontSize: '0.9rem' }}>Question {index + 1}</strong>
-        <div style={{ display: 'flex', gap: '0.4rem' }}>
+        <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
+          <select
+            className="input-field"
+            value={isTrueFalse ? 'true_false' : 'mcq'}
+            onChange={e => changeType(e.target.value)}
+            style={{ width: 'auto', padding: '0.3rem 0.5rem', fontSize: '0.8rem' }}
+            title="Question type"
+          >
+            <option value="mcq">MCQ</option>
+            <option value="true_false">True / False</option>
+          </select>
           <button onClick={() => setExpanded(e => !e)} className="btn-secondary" style={{ padding: '0.3rem 0.5rem' }}>
             {expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
           </button>
@@ -483,6 +568,8 @@ function QuestionEditor({ q, index, onChange, onOptionChange, onRemove, canRemov
                   value={opt}
                   onChange={e => onOptionChange(i, e.target.value)}
                   placeholder={`Option ${String.fromCharCode(65 + i)}`}
+                  readOnly={isTrueFalse}
+                  style={isTrueFalse ? { opacity: 0.8, cursor: 'default' } : undefined}
                 />
               </div>
             ))}

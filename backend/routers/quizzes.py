@@ -1,8 +1,7 @@
 """
-Quiz Router — Teacher creates MCQ quizzes (manually or via AI),
-students take them with a timer, both see results.
+Quiz Router — Teacher creates MCQ / true-false quizzes (manually or via AI, optionally from
+an uploaded PDF, TXT or DOCX), students take them once with a server-timed window, both see results.
 """
-import io
 import random
 from datetime import datetime, timedelta
 from typing import List, Optional
@@ -14,43 +13,18 @@ from core.timeutil import parse_deadline
 from database import get_db
 from models.school import QuizOut, QuizAttemptOut
 from routers.deps import get_current_teacher, get_current_student, get_current_user
-from services.quiz_generator import generate_quiz_questions
+from services.document_text import DocumentError, SUPPORTED_EXTENSIONS, extract_text
+from services.quiz_generator import GenerationError, QUESTION_TYPES as GENERATION_TYPES, generate_quiz_questions
+from services.quiz_logic import QuizValidationError, normalise_question, submission_window
+from services.quiz_logic import validate_questions as validate_question_dicts
 from services.notifications import notify_user
 
 router = APIRouter(prefix="/quizzes", tags=["quizzes"])
 
 
-def _extract_pdf_text(pdf_bytes: bytes) -> str:
-    """
-    Extract embedded text from a PDF using PyMuPDF (fitz).
-    This is fast and works for typed PDFs; scanned/handwritten PDFs will return
-    little or no text — the caller will surface a helpful error in that case.
-    """
-    try:
-        import fitz  # PyMuPDF
-    except ImportError as e:
-        raise HTTPException(
-            status_code=500,
-            detail="PDF extraction requires PyMuPDF. Install with `pip install pymupdf`.",
-        ) from e
-
-    try:
-        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Could not open PDF: {e}")
-
-    chunks = []
-    for page in doc:
-        try:
-            chunks.append(page.get_text("text"))
-        except Exception:
-            continue
-    doc.close()
-    return "\n".join(chunks).strip()
-
-
 # ── Request bodies ──────────────────────────────────────────────────────────
 class QuizQuestionInput(BaseModel):
+    type: str = "mcq"  # mcq | true_false
     question_text: str
     options: List[str]
     correct_index: int
@@ -86,11 +60,15 @@ class QuizGenerateBody(BaseModel):
     num_questions: int = 5
     difficulty: str = "medium"
     source_text: Optional[str] = None
+    question_type: str = "mcq"  # mcq | true_false | mixed
+    grade_level: Optional[str] = None
+    subject: Optional[str] = None
+    objectives: Optional[str] = None
 
 
 class QuizSubmitBody(BaseModel):
     answers: List[int]
-    started_at: str  # ISO datetime when student started
+    started_at: Optional[str] = None  # ignored: the server recorded the start in /start
     auto_submitted: bool = False
     # Integrity / proctoring metrics
     tab_switches: int = 0
@@ -101,21 +79,20 @@ class QuizSubmitBody(BaseModel):
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
 def _validate_questions(questions: List[QuizQuestionInput]) -> int:
-    """Validate questions and return total_marks."""
-    if not questions:
-        raise HTTPException(status_code=400, detail="At least one question required")
-    total = 0
-    for i, q in enumerate(questions):
-        if len(q.options) != 4:
-            raise HTTPException(status_code=400, detail=f"Question {i+1}: must have exactly 4 options")
-        if q.correct_index < 0 or q.correct_index > 3:
-            raise HTTPException(status_code=400, detail=f"Question {i+1}: correct_index must be 0-3")
-        if not q.question_text.strip():
-            raise HTTPException(status_code=400, detail=f"Question {i+1}: text cannot be empty")
-        if q.marks < 1:
-            raise HTTPException(status_code=400, detail=f"Question {i+1}: marks must be >= 1")
-        total += q.marks
-    return total
+    """Validate MCQ / true-false questions and return total_marks (rules in services/quiz_logic.py)."""
+    try:
+        # Validate what the client actually sent (a true/false question with three options is
+        # a client bug); normalise_question() then fixes option texts for storage.
+        return validate_question_dicts([q.model_dump() for q in questions])
+    except QuizValidationError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+def _generation_type(value: str) -> str:
+    value = (value or "mcq").strip().lower()
+    if value not in GENERATION_TYPES:
+        raise HTTPException(status_code=400, detail=f"question_type must be one of {', '.join(GENERATION_TYPES)}")
+    return value
 
 
 def _parse_deadline(deadline: Optional[str]) -> Optional[datetime]:
@@ -139,6 +116,7 @@ def _map_quiz(doc: dict, hide_answers: bool = False) -> dict:
     if hide_answers and "questions" in out:
         out["questions"] = [
             {
+                "type": q.get("type", "mcq"),
                 "question_text": q["question_text"],
                 "options": q["options"],
                 "marks": q.get("marks", 1),
@@ -162,67 +140,86 @@ async def generate_quiz(
     body: QuizGenerateBody,
     current_teacher: dict = Depends(get_current_teacher),
 ):
-    """Teacher uses AI to generate MCQ questions on a topic. Returns draft questions to review."""
+    """Teacher uses AI to generate MCQ / true-false questions on a topic. Returns draft questions to review."""
     if not body.topic.strip():
         raise HTTPException(status_code=400, detail="Topic is required")
-    questions = await generate_quiz_questions(
-        topic=body.topic,
-        num_questions=body.num_questions,
-        difficulty=body.difficulty,
-        source_text=body.source_text,
-    )
+    try:
+        questions = await generate_quiz_questions(
+            topic=body.topic,
+            num_questions=body.num_questions,
+            difficulty=body.difficulty,
+            source_text=body.source_text,
+            question_type=_generation_type(body.question_type),
+            grade_level=body.grade_level,
+            subject=body.subject,
+            objectives=body.objectives,
+        )
+    except GenerationError as e:
+        raise HTTPException(status_code=502, detail=str(e))
     if not questions:
-        raise HTTPException(status_code=500, detail="AI did not return any valid questions. Try again or refine the topic.")
+        raise HTTPException(status_code=502, detail="AI did not return any valid questions. Try again or refine the topic.")
     return {"questions": questions, "count": len(questions)}
 
 
-@router.post("/generate-from-pdf")
-async def generate_quiz_from_pdf(
+@router.post("/generate-from-document")
+@router.post("/generate-from-pdf")  # old name, kept for existing clients
+async def generate_quiz_from_document(
     file: UploadFile = File(...),
     topic: Optional[str] = Form(None),
     num_questions: int = Form(5),
     difficulty: str = Form("medium"),
+    question_type: str = Form("mcq"),
+    grade_level: Optional[str] = Form(None),
+    subject: Optional[str] = Form(None),
+    objectives: Optional[str] = Form(None),
     current_teacher: dict = Depends(get_current_teacher),
 ):
     """
-    Teacher uploads a PDF — server extracts its text and generates MCQ
-    questions grounded in that content.
+    Teacher uploads reference material (PDF, TXT, MD or DOCX); the server extracts its
+    text and generates questions grounded in that content.
     """
-    if not file.filename.lower().endswith(".pdf"):
-        raise HTTPException(status_code=400, detail="Only PDF files are supported.")
+    data = await file.read()
+    if not data:
+        raise HTTPException(status_code=400, detail="Uploaded file is empty.")
+    if len(data) > 15 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="File too large (limit: 15 MB).")
 
-    pdf_bytes = await file.read()
-    if not pdf_bytes:
-        raise HTTPException(status_code=400, detail="Uploaded PDF is empty.")
-    if len(pdf_bytes) > 15 * 1024 * 1024:
-        raise HTTPException(status_code=400, detail="PDF too large (limit: 15 MB).")
-
-    source_text = _extract_pdf_text(pdf_bytes)
+    try:
+        source_text = extract_text(file.filename or "", data)
+    except DocumentError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     if len(source_text) < 200:
         raise HTTPException(
             status_code=400,
             detail=(
-                "Could not extract enough text from the PDF. "
-                "Make sure the PDF contains selectable text (scanned/handwritten "
-                "PDFs aren't supported by this fast path)."
+                "Could not extract enough text from the file. PDFs must contain selectable text "
+                "(scanned or handwritten PDFs are not supported here); TXT and DOCX files work as they are."
             ),
         )
 
-    derived_topic = (topic or "").strip() or (file.filename.rsplit(".", 1)[0])
+    derived_topic = (topic or "").strip() or (file.filename or "document").rsplit(".", 1)[0]
 
-    questions = await generate_quiz_questions(
-        topic=derived_topic,
-        num_questions=num_questions,
-        difficulty=difficulty,
-        source_text=source_text,
-    )
+    try:
+        questions = await generate_quiz_questions(
+            topic=derived_topic,
+            num_questions=num_questions,
+            difficulty=difficulty,
+            source_text=source_text,
+            question_type=_generation_type(question_type),
+            grade_level=grade_level,
+            subject=subject,
+            objectives=objectives,
+        )
+    except GenerationError as e:
+        raise HTTPException(status_code=502, detail=str(e))
     if not questions:
-        raise HTTPException(status_code=500, detail="AI did not return any valid questions. Try again.")
+        raise HTTPException(status_code=502, detail="AI did not return any valid questions. Try again.")
     return {
         "questions": questions,
         "count": len(questions),
         "topic": derived_topic,
         "source_chars": len(source_text),
+        "supported_types": list(SUPPORTED_EXTENSIONS),
     }
 
 
@@ -247,7 +244,7 @@ async def create_quiz(
         "teacher_id": current_teacher["id"],
         "title": body.title.strip(),
         "description": body.description.strip() if body.description else None,
-        "questions": [q.model_dump() for q in body.questions],
+        "questions": [normalise_question(q) for q in body.questions],
         "total_marks": total_marks,
         "time_limit_minutes": body.time_limit_minutes,
         "deadline": deadline,
@@ -360,8 +357,11 @@ async def update_quiz(
     if body.description is not None:
         updates["description"] = body.description.strip() or None
     if body.questions is not None:
+        # The answer key is locked once anyone has attempted the quiz (the UI hides this too).
+        if await db["quiz_attempts"].count_documents({"quiz_id": quiz_id}) > 0:
+            raise HTTPException(status_code=409, detail="Questions are locked once a student has attempted the quiz")
         updates["total_marks"] = _validate_questions(body.questions)
-        updates["questions"] = [q.model_dump() for q in body.questions]
+        updates["questions"] = [normalise_question(q) for q in body.questions]
     if body.time_limit_minutes is not None:
         if body.time_limit_minutes < 1:
             raise HTTPException(status_code=400, detail="Time limit must be at least 1 minute")
@@ -416,6 +416,7 @@ async def delete_quiz(
     if not quiz:
         raise HTTPException(status_code=404, detail="Quiz not found")
     await db["quiz_attempts"].delete_many({"quiz_id": quiz_id})
+    await db["quiz_sessions"].delete_many({"quiz_id": quiz_id})
     await db["quizzes"].delete_one({"_id": ObjectId(quiz_id)})
 
 
@@ -455,26 +456,46 @@ async def start_quiz(
     if existing:
         raise HTTPException(status_code=409, detail="You have already taken this quiz")
 
-    # Build student-safe view with optional shuffling
+    # The start time is recorded on the SERVER: reopening the page keeps the same clock,
+    # and /submit measures the time limit from this timestamp, not from the client.
+    # Millisecond precision: MongoDB stores no microseconds, and the value must read back
+    # identical so a refresh gets the same clock and the same shuffle seed.
+    now = datetime.utcnow().replace(microsecond=(datetime.utcnow().microsecond // 1000) * 1000)
+    session = await db["quiz_sessions"].find_one({"quiz_id": quiz_id, "student_id": current_student["id"]})
+    if session:
+        started_at = session["started_at"]
+    else:
+        started_at = now
+        await db["quiz_sessions"].insert_one({
+            "quiz_id": quiz_id, "student_id": current_student["id"], "started_at": started_at,
+        })
+    window = submission_window(quiz, started_at, now)
+    if not window["open"]:
+        raise HTTPException(status_code=403, detail="Your time for this quiz has run out")
+
+    # Build student-safe view with optional shuffling. The shuffle is seeded with the
+    # session so a page refresh shows the same order and autosaved answers still line up.
+    rng = random.Random(f"{quiz_id}:{current_student['id']}:{started_at.isoformat()}")
     questions = list(quiz["questions"])
     # Track original indices so we can grade correctly after shuffle
     indexed = [{"_orig_idx": i, **q} for i, q in enumerate(questions)]
 
     if quiz.get("shuffle_questions"):
-        random.shuffle(indexed)
+        rng.shuffle(indexed)
 
     safe_questions = []
     for q in indexed:
         opts = list(q["options"])
         # Track which option is which after shuffle
         option_pairs = list(enumerate(opts))
-        if quiz.get("shuffle_options"):
-            random.shuffle(option_pairs)
+        if quiz.get("shuffle_options") and q.get("type", "mcq") != "true_false":
+            rng.shuffle(option_pairs)
         # Build mapping: original_option_idx -> shuffled_position
         shuffled_options = [pair[1] for pair in option_pairs]
         # We send: position-mapping so we can decode answers later
         # But to keep it stateless, we just send shuffled options & track on submit
         safe_questions.append({
+            "type": q.get("type", "mcq"),
             "question_text": q["question_text"],
             "options": shuffled_options,
             "marks": q.get("marks", 1),
@@ -490,7 +511,9 @@ async def start_quiz(
         "questions": safe_questions,
         "total_marks": quiz["total_marks"],
         "time_limit_minutes": quiz["time_limit_minutes"],
-        "started_at": datetime.utcnow().isoformat(),
+        "started_at": started_at.isoformat(),
+        "ends_at": window["ends_at"].isoformat(),
+        "seconds_left": max(0, int((window["ends_at"] - now).total_seconds())),
         "deadline": quiz["deadline"].isoformat() if quiz.get("deadline") else None,
     }
 
@@ -526,6 +549,18 @@ async def submit_quiz(
     if existing:
         raise HTTPException(status_code=409, detail="Already submitted")
 
+    # Enforce the time limit and the deadline from the server-side start time.
+    submitted_at = datetime.utcnow()
+    session = await db["quiz_sessions"].find_one({"quiz_id": quiz_id, "student_id": current_student["id"]})
+    if not session:
+        raise HTTPException(status_code=409, detail="Start the quiz before submitting it")
+    started_at = session["started_at"]
+    window = submission_window(quiz, started_at, submitted_at)
+    if not window["open"]:
+        why = "the deadline has passed" if window["reason"] == "deadline" else "the time limit has run out"
+        raise HTTPException(status_code=403, detail=f"Submission refused: {why}")
+    time_taken = max(0, int((submitted_at - started_at).total_seconds()))
+
     questions = quiz["questions"]
     if len(body.answers) != len(questions):
         raise HTTPException(
@@ -542,19 +577,11 @@ async def submit_quiz(
             score += q.get("marks", 1)
             correct_count += 1
 
-    try:
-        started_at = datetime.fromisoformat(body.started_at.replace("Z", "+00:00"))
-        if started_at.tzinfo:
-            started_at = started_at.replace(tzinfo=None)
-    except (ValueError, AttributeError):
-        started_at = datetime.utcnow()
-
-    submitted_at = datetime.utcnow()
-    time_taken = max(0, int((submitted_at - started_at).total_seconds()))
-
     record = {
         "quiz_id": quiz_id,
         "student_id": current_student["id"],
+        "status": "submitted",
+        "late_by_seconds": window["late_by_seconds"],
         "answers": body.answers,
         "score": score,
         "total_marks": quiz["total_marks"],
@@ -569,6 +596,7 @@ async def submit_quiz(
         "paste_attempts": max(0, int(body.paste_attempts or 0)),
     }
     result = await db["quiz_attempts"].insert_one(record)
+    await db["quiz_sessions"].delete_one({"quiz_id": quiz_id, "student_id": current_student["id"]})
 
     # Notify teacher of quiz attempt
     integrity_flags = []

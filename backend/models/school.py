@@ -190,6 +190,8 @@ class QuizAttemptOut(BaseModel):
     submitted_at: datetime
     time_taken_seconds: int
     auto_submitted: bool
+    status: Optional[str] = "submitted"
+    late_by_seconds: Optional[int] = 0
     tab_switches: Optional[int] = 0
     time_away_seconds: Optional[int] = 0
     copy_attempts: Optional[int] = 0
