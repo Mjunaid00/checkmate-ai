@@ -250,8 +250,14 @@ function Start-Tunnel {
         if ($null -eq $t) {
             Start-Process -FilePath 'cmd.exe' -ArgumentList "/k `"`"$exe`" http $BackendPort --domain=$TunnelDomain`"" -WorkingDirectory $ProjectRoot
             Write-Host "      Starting ngrok for https://$TunnelDomain ..." -ForegroundColor DarkGray
-            $deadline = (Get-Date).AddSeconds(25)
-            while ((Get-Date) -lt $deadline -and $null -eq $t) { Start-Sleep -Seconds 2; $t = Get-Json $api 2 }
+            # The agent's local API answers before the tunnel is registered, and a first start
+            # after the previous session was killed can take a while: wait for an https tunnel entry.
+            $deadline = (Get-Date).AddSeconds(60)
+            while ((Get-Date) -lt $deadline) {
+                Start-Sleep -Seconds 2
+                $t = Get-Json $api 2
+                if ($t -and (@($t.tunnels) | Where-Object { $_.public_url -like 'https://*' })) { break }
+            }
             $note = 'started'
         }
         $url = ''
