@@ -202,21 +202,28 @@ function Resolve-EnvPython {
 function Find-Tool($Name, $Candidates) {
     $cmd = Get-Command $Name -ErrorAction SilentlyContinue
     if ($cmd) { return $cmd.Source }
-    foreach ($c in @($Candidates)) { if ($c -and (Test-Path $c)) { return $c } }
+    foreach ($c in @($Candidates)) {
+        if (-not $c) { continue }
+        $hit = Get-Item $c -ErrorAction SilentlyContinue | Select-Object -First 1   # wildcards allowed
+        if ($hit) { return $hit.FullName }
+    }
     return $null
 }
 
 function Test-PublicHealth($Url, $TimeoutSec) {
     # GET <url>/health through the tunnel until it answers JSON. The header makes ngrok's
     # free plan skip its browser warning page.
+    $script:LastProbeError = ''
     $deadline = (Get-Date).AddSeconds($TimeoutSec)
     while ((Get-Date) -lt $deadline) {
         try {
             $r = Invoke-RestMethod -Uri "$Url/health" -TimeoutSec 8 -Headers @{ 'ngrok-skip-browser-warning' = '1' } -ErrorAction Stop
             if ($r -and $r.PSObject.Properties['status']) { return $true }
-        } catch { }
+            $script:LastProbeError = ('unexpected reply: ' + (($r | Out-String) -replace '\s+', ' ').Trim())
+        } catch { $script:LastProbeError = $_.Exception.Message }
         Start-Sleep -Seconds 3
     }
+    if ($script:LastProbeError.Length -gt 160) { $script:LastProbeError = $script:LastProbeError.Substring(0, 160) + '...' }
     return $false
 }
 
@@ -224,12 +231,22 @@ function Start-Tunnel {
     # Opens the tunnel configured in backend\.env and returns the public https URL of the
     # backend ('' on failure; a Tunnel result line is always recorded).
     if ($TunnelProvider -eq 'ngrok') {
-        $exe = Find-Tool 'ngrok' @("$env:LOCALAPPDATA\Microsoft\WinGet\Links\ngrok.exe")
+        $exe = Find-Tool 'ngrok' @("$env:LOCALAPPDATA\Microsoft\WinGet\Links\ngrok.exe", "$env:LOCALAPPDATA\Microsoft\WinGet\Packages\Ngrok.Ngrok_*\ngrok.exe", "$env:ProgramFiles\ngrok\ngrok.exe")
         if (-not $exe) { Add-Result 'Tunnel' 'FAIL' 'ngrok.exe not found. Install: winget install Ngrok.Ngrok   then once: ngrok config add-authtoken <token from dashboard.ngrok.com>'; return '' }
         if (-not $TunnelDomain) { Add-Result 'Tunnel' 'FAIL' 'TUNNEL_DOMAIN is empty - put your ngrok domain (dashboard.ngrok.com -> Domains) into backend\.env'; return '' }
         $api = 'http://127.0.0.1:4040/api/tunnels'
         $t = Get-Json $api 2
         $note = 'already running'
+        if ($t -and $t.tunnels) {
+            # An agent started by hand (e.g. "ngrok http 80") would be reused with the wrong port.
+            $addr = (@($t.tunnels) | Select-Object -First 1).config.addr
+            if ($addr -and $addr -notmatch ":$BackendPort/?$") {
+                Write-Host "      ngrok is already running but forwards to $addr, not the backend - restarting it for port $BackendPort." -ForegroundColor Yellow
+                Get-Process -Name ngrok -ErrorAction SilentlyContinue | ForEach-Object { cmd /c "taskkill /PID $($_.Id) /T /F >nul 2>&1" }
+                Start-Sleep -Seconds 2
+                $t = $null
+            }
+        }
         if ($null -eq $t) {
             Start-Process -FilePath 'cmd.exe' -ArgumentList "/k `"`"$exe`" http $BackendPort --domain=$TunnelDomain`"" -WorkingDirectory $ProjectRoot
             Write-Host "      Starting ngrok for https://$TunnelDomain ..." -ForegroundColor DarkGray
@@ -240,8 +257,8 @@ function Start-Tunnel {
         $url = ''
         if ($t -and $t.tunnels) { $url = (@($t.tunnels) | Where-Object { $_.public_url -like 'https://*' } | Select-Object -First 1).public_url }
         if (-not $url) { Add-Result 'Tunnel' 'FAIL' "ngrok did not come up (see its window). Usually the authtoken is missing (ngrok config add-authtoken <token>) or the domain '$TunnelDomain' does not belong to this account."; return '' }
-        if (Test-PublicHealth $url 40) { Add-Result 'Tunnel' 'PASS' "$url -> $BackendUrl ($note, /health answers through it)" }
-        else { Add-Result 'Tunnel' 'WARN' "$url is open but /health did not answer through it within 40 s" }
+        if (Test-PublicHealth $url 75) { Add-Result 'Tunnel' 'PASS' "$url -> $BackendUrl ($note, /health answers through it)" }
+        else { Add-Result 'Tunnel' 'WARN' "$url is open but /health did not answer through it within 75 s (last error: $script:LastProbeError)" }
         return $url
     }
     if ($TunnelProvider -eq 'cloudflared') {
@@ -256,7 +273,7 @@ function Start-Tunnel {
                 Write-Host "      Starting cloudflared tunnel '$TunnelName' for $url ..." -ForegroundColor DarkGray
             }
             if (Test-PublicHealth $url 60) { Add-Result 'Tunnel' 'PASS' "$url -> $BackendUrl (named tunnel '$TunnelName', /health answers through it)" }
-            else { Add-Result 'Tunnel' 'FAIL' "$url did not answer within 60 s (see the cloudflared window and logs\cloudflared.log)" }
+            else { Add-Result 'Tunnel' 'FAIL' "$url did not answer within 60 s (last error: $script:LastProbeError; see the cloudflared window and logs\cloudflared.log)" }
             return $url
         }
         # No domain on Cloudflare: a quick tunnel whose address changes on every start.
@@ -274,7 +291,7 @@ function Start-Tunnel {
         }
         if (-not $url) { Add-Result 'Tunnel' 'FAIL' 'cloudflared gave no quick-tunnel address within 30 s (see logs\cloudflared.log)'; return '' }
         if (Test-PublicHealth $url 60) { Add-Result 'Tunnel' 'WARN' "$url -> $BackendUrl (/health answers). This address CHANGES on every start: put it into frontend\.env.production and push, or use ngrok / a Cloudflare domain for a fixed one." }
-        else { Add-Result 'Tunnel' 'WARN' "$url created, but /health did not answer through it within 60 s (DNS may still be propagating)" }
+        else { Add-Result 'Tunnel' 'WARN' "$url created, but /health did not answer through it within 60 s (last error: $script:LastProbeError)" }
         return $url
     }
     Add-Result 'Tunnel' 'FAIL' "Unknown TUNNEL_PROVIDER '$TunnelProvider' in backend\.env (use none, ngrok or cloudflared)"
