@@ -57,3 +57,7 @@ _backup_before_fixes_2026-11-04/
 
 # Demo video (101 MB - above the GitHub 100 MB file limit); keep it out of the repository
 docs/testvideo/
+
+# Not published: screenshots (some show login screens) and old run notes
+docs/screen_shorts/
+previous-run instruction/
