@@ -8,6 +8,9 @@ from bson import ObjectId
 
 from config import UPLOAD_DIR, relative_upload_path
 from services.student_safe import student_safe_assignment
+from services.audit import AuditError, record_audit
+from services.permissions import describe_changes, is_admin_override, owner_filter
+from services.notifications import notify_user
 from core.timeutil import parse_deadline
 from database import get_db
 from models.school import AssignmentInDB, AssignmentOut
@@ -123,18 +126,22 @@ async def update_assignment(
     total_marks: Optional[int] = None,
     grading_prompt: Optional[str] = None,
     deadline: Optional[str] = None,
+    reason: Optional[str] = None,
     current_teacher: dict = Depends(get_current_teacher),
     db=Depends(get_db),
 ):
-    """Teacher edits an assignment's title, marks, grading prompt, or deadline."""
+    """
+    Teacher edits their assignment's title, marks, grading prompt, or deadline. An admin may
+    edit any assignment: that needs a `reason`, is written to the audit log and the owning
+    teacher is notified.
+    """
     if not ObjectId.is_valid(assignment_id):
         raise HTTPException(status_code=400, detail="Invalid assignment_id")
 
-    assignment = await db["assignments"].find_one({
-        "_id": ObjectId(assignment_id), "teacher_id": current_teacher["id"]
-    })
+    assignment = await db["assignments"].find_one({"_id": ObjectId(assignment_id), **owner_filter(current_teacher)})
     if not assignment:
         raise HTTPException(status_code=404, detail="Assignment not found")
+    override = is_admin_override(current_teacher, assignment.get("teacher_id"))
 
     updates = {}
     if title is not None and title.strip():
@@ -160,11 +167,33 @@ async def update_assignment(
     if not updates:
         raise HTTPException(status_code=400, detail="No fields to update")
 
+    if override:
+        try:
+            await record_audit(
+                db, current_teacher, "assignment_updated", "assignment", assignment_id, reason,
+                details={"assignment_title": assignment.get("title"), "class_id": assignment.get("class_id"),
+                         "teacher_id": assignment.get("teacher_id"), "changes": describe_changes(assignment, updates)},
+            )
+        except AuditError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
     await db["assignments"].update_one(
         {"_id": ObjectId(assignment_id)},
         {"$set": updates},
     )
     updated = await db["assignments"].find_one({"_id": ObjectId(assignment_id)})
+
+    if override and assignment.get("teacher_id"):
+        new_dl = updates.get("deadline")
+        if "deadline" in updates:
+            tail = f" New deadline: {new_dl.strftime('%Y-%m-%d %H:%M')} UTC." if new_dl else " Deadline removed."
+        else:
+            tail = ""
+        await notify_user(
+            db, user_id=assignment["teacher_id"], title="Assignment changed by an administrator",
+            body=f"An administrator changed {', '.join(sorted(updates.keys()))} of '{assignment.get('title')}' ({(reason or '').strip()}).{tail}",
+            link="/", category="assignment",
+        )
     return map_assignment(updated)
 
 

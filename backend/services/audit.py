@@ -13,9 +13,12 @@ class AuditError(ValueError):
 
 
 def audit_entry(actor: Dict[str, Any], action: str, target_type: str, target_id: Any,
-                reason: Optional[str], details: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+                reason: Optional[str], details: Optional[Dict[str, Any]] = None,
+                require_reason: bool = True) -> Dict[str, Any]:
+    """Overrides (resets, removals, edits of someone else's record) need a reason; plain
+    administrative actions (account edits) are logged without one."""
     reason = (reason or "").strip()
-    if len(reason) < MIN_REASON_CHARS:
+    if require_reason and len(reason) < MIN_REASON_CHARS:
         raise AuditError(f"A reason (at least {MIN_REASON_CHARS} characters) is required")
     return {
         "actor_id": actor.get("id"),
@@ -31,9 +34,10 @@ def audit_entry(actor: Dict[str, Any], action: str, target_type: str, target_id:
 
 
 async def record_audit(db, actor: Dict[str, Any], action: str, target_type: str, target_id: Any,
-                       reason: Optional[str], details: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+                       reason: Optional[str], details: Optional[Dict[str, Any]] = None,
+                       require_reason: bool = True) -> Dict[str, Any]:
     """Validate and store one audit entry; returns it (with `_id`)."""
-    entry = audit_entry(actor, action, target_type, target_id, reason, details)
+    entry = audit_entry(actor, action, target_type, target_id, reason, details, require_reason=require_reason)
     result = await db["audit_log"].insert_one(entry)
     entry["_id"] = result.inserted_id
     return entry

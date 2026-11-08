@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   ShieldCheck, Users, GraduationCap, UserCog, Plus, Trash2, KeyRound,
-  Search, RefreshCw, Save, X, CheckCircle2, XCircle,
+  Search, RefreshCw, Save, X, CheckCircle2, XCircle, BookOpen, CalendarClock, Eye,
 } from 'lucide-react';
 import api from '../services/api';
-import { formatDate } from '../utils/dateFormat';
+import DateTimeField from '../components/DateTimeField';
+import { formatDate, formatDateTime, toDatetimeLocalValue, toApiDatetime, isPast, nowForDatetimeLocal } from '../utils/dateFormat';
 import './Dashboard.css';
 
 const ROLES = ['student', 'teacher', 'admin'];
@@ -114,7 +115,7 @@ export default function AdminPanel() {
           <h1 className="page-title" style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
             <ShieldCheck size={24} /> Admin Panel
           </h1>
-          <p className="page-subtitle">Manage every account in the system: roles, passwords, and access.</p>
+          <p className="page-subtitle">Full control: every account (roles, emails, passwords, access), assignment and quiz deadlines, and student submissions.</p>
         </div>
         <button className="btn-secondary" onClick={fetchAll} title="Refresh">
           <RefreshCw size={16} /> Refresh
@@ -233,6 +234,7 @@ export default function AdminPanel() {
           onCreated={() => { setShowCreate(false); flash('User created.'); fetchAll(); }}
         />
       )}
+      <ClassOversightSection users={users} flash={flash} setError={setError} />
       <AuditLogSection />
 
       {editingUser && (
@@ -258,17 +260,31 @@ function AuditLogSection() {
   useEffect(() => {
     api.get('/audit/', { params: { limit: 100 } }).then(r => setEntries(r.data)).catch(() => setEntries([]));
   }, []);
-  const label = (a) => ({ quiz_attempt_reset: 'Quiz retake allowed', submission_reset: 'Resubmission allowed' }[a] || a);
+  const label = (a) => ({
+    quiz_attempt_reset: 'Quiz retake allowed', submission_reset: 'Submission removed / resubmission allowed',
+    assignment_updated: 'Assignment changed by admin', quiz_updated: 'Quiz changed by admin',
+    user_updated: 'Account updated', password_reset: 'Password reset', user_deleted: 'Account deleted', user_created: 'Account created',
+  }[a] || a);
   const target = (e) => {
     const d = e.details || {};
-    const what = d.quiz_title || d.assignment_title || e.target_type;
+    const what = d.quiz_title || d.assignment_title || d.email || e.target_type;
     return d.student_id ? `${what} · student …${String(d.student_id).slice(-6)}` : what;
+  };
+  const fmtVal = (v) => {
+    if (v === null || v === undefined || v === '') return 'none';
+    if (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(v)) return formatDateTime(v);
+    return String(v);
+  };
+  const changes = (e) => {
+    const c = (e.details || {}).changes;
+    if (!c || typeof c !== 'object') return '';
+    return Object.entries(c).map(([k, v]) => `${k}: ${fmtVal(v.from)} → ${fmtVal(v.to)}`).join('; ');
   };
   return (
     <section className="glass-panel" style={{ padding: '1rem', marginTop: '1rem' }}>
       <h3 className="section-title" style={{ marginBottom: '0.25rem' }}>Audit log</h3>
       <p className="text-muted" style={{ fontSize: '0.82rem', marginBottom: '0.75rem' }}>
-        Teacher overrides of the single-submission rule, with the reason given.
+        Teacher and admin overrides (retakes, removed submissions, deadline changes on other teachers' work) with the reason given, and admin account actions.
       </p>
       {entries === null ? (
         <p className="text-muted">Loading...</p>
@@ -278,7 +294,7 @@ function AuditLogSection() {
         <div style={{ overflowX: 'auto' }}>
           <table className="data-table" style={{ width: '100%' }}>
             <thead>
-              <tr><th>When</th><th>Who</th><th>Action</th><th>Target</th><th>Reason</th></tr>
+              <tr><th>When</th><th>Who</th><th>Action</th><th>Target</th><th>Reason / change</th></tr>
             </thead>
             <tbody>
               {entries.map(e => (
@@ -287,7 +303,10 @@ function AuditLogSection() {
                   <td>{e.actor_name} <span className="text-muted">({e.actor_role})</span></td>
                   <td>{label(e.action)}</td>
                   <td style={{ fontSize: '0.82rem' }}>{target(e)}</td>
-                  <td>{e.reason}</td>
+                  <td style={{ fontSize: '0.85rem' }}>
+                    {e.reason}
+                    {changes(e) && <div className="text-muted" style={{ fontSize: '0.78rem' }}>{changes(e)}</div>}
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -379,6 +398,7 @@ function CreateUserModal({ onClose, onCreated }) {
 function EditUserModal({ user, onClose, onSaved }) {
   const [form, setForm] = useState({
     name: user.name || '',
+    email: user.email || '',
     role: user.role,
     institution: user.institution || '',
     is_active: user.is_active !== false,
@@ -397,6 +417,7 @@ function EditUserModal({ user, onClose, onSaved }) {
     try {
       await api.patch(`/admin/users/${user.id}`, {
         name: form.name.trim(),
+        email: form.email.trim(),
         role: form.role,
         institution: form.institution.trim() || null,
         is_active: form.is_active,
@@ -423,6 +444,11 @@ function EditUserModal({ user, onClose, onSaved }) {
             onChange={e => setForm(f => ({ ...f, role: e.target.value }))}>
             {ROLES.map(r => <option key={r} value={r}>{r[0].toUpperCase() + r.slice(1)}</option>)}
           </select>
+        </Field>
+        <Field label="Email">
+          <input type="email" className="input-field" value={form.email}
+            onChange={e => setForm(f => ({ ...f, email: e.target.value }))}
+            required />
         </Field>
         <Field label="Institution">
           <input type="text" className="input-field" value={form.institution}
@@ -503,5 +529,223 @@ function Field({ label, children }) {
       </label>
       {children}
     </div>
+  );
+}
+
+// ── Classes, deadlines and submissions (admin oversight) ─────────────────────
+function ClassOversightSection({ users, flash, setError }) {
+  const [classes, setClasses] = useState(null);
+  const [selected, setSelected] = useState(null);
+  const [assignments, setAssignments] = useState([]);
+  const [quizzes, setQuizzes] = useState([]);
+  const [subsFor, setSubsFor] = useState(null);
+  const [subs, setSubs] = useState(null);
+  const [deadlineTarget, setDeadlineTarget] = useState(null);
+
+  const userName = (id) => users.find(u => u.id === id)?.name || `student …${String(id || '').slice(-6)}`;
+  const loadClasses = () => api.get('/admin/classes').then(r => setClasses(r.data)).catch(() => setClasses([]));
+  useEffect(() => { loadClasses(); }, []);
+
+  const openClass = async (c) => {
+    setSelected(c); setSubsFor(null); setSubs(null);
+    try {
+      const [a, q] = await Promise.all([api.get(`/assignments/class/${c.class_id}`), api.get(`/quizzes/class/${c.class_id}`)]);
+      setAssignments(a.data); setQuizzes(q.data);
+    } catch (err) { setError(err.response?.data?.detail || 'Could not load the class.'); }
+  };
+  const reloadClass = () => selected && openClass(selected);
+
+  const showSubs = async (a) => {
+    setSubsFor(a); setSubs(null);
+    try { const r = await api.get(`/submissions/assignment/${a.assignment_id}`); setSubs(r.data); }
+    catch (err) { setError(err.response?.data?.detail || 'Could not load submissions.'); setSubs([]); }
+  };
+
+  const removeSub = async (sub) => {
+    const reason = window.prompt(`Remove the submission of ${userName(sub.student_id)} for "${subsFor.title}"?\nGive the reason for the audit log (the student is notified and may upload again):`);
+    if (reason === null) return;
+    try {
+      await api.post(`/submissions/${sub.submission_id}/allow-resubmission`, { reason });
+      flash('Submission removed; the student may upload again.');
+      showSubs(subsFor);
+    } catch (err) { setError(err.response?.data?.detail || 'Could not remove the submission.'); }
+  };
+
+  const statusPill = (st) => <span style={{ fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase' }}>{st || '—'}</span>;
+
+  // The modal is rendered outside the glass-panel: its backdrop-filter would otherwise become the
+  // containing block of the fixed-position dialog and push it out of the viewport.
+  return (
+    <>
+    <section className="glass-panel" style={{ padding: '1rem', marginTop: '1rem' }}>
+      <h3 className="section-title" style={{ marginBottom: '0.25rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+        <BookOpen size={18} /> Classes, deadlines and submissions
+      </h3>
+      <p className="text-muted" style={{ fontSize: '0.82rem', marginBottom: '0.75rem' }}>
+        Every class in the system. Open one to change assignment or quiz deadlines (the teacher is notified) and to review or remove student submissions on request. Each change needs a reason and is written to the audit log.
+      </p>
+      {classes === null ? <p className="text-muted">Loading...</p> : classes.length === 0 ? <p className="text-muted">No classes yet.</p> : (
+        <div style={{ overflowX: 'auto' }}>
+          <table className="data-table" style={{ width: '100%' }}>
+            <thead><tr><th>Class</th><th>Teacher</th><th>Students</th><th>Assignments</th><th>Quizzes</th><th style={{ textAlign: 'right' }}></th></tr></thead>
+            <tbody>
+              {classes.map(c => (
+                <tr key={c.class_id} style={{ background: selected?.class_id === c.class_id ? 'var(--accent-soft)' : undefined }}>
+                  <td><strong>{c.name}</strong></td>
+                  <td>{c.teacher_name || '—'} <span className="text-muted" style={{ fontSize: '0.78rem' }}>{c.teacher_email}</span></td>
+                  <td>{c.student_count}</td>
+                  <td>{c.assignment_count}</td>
+                  <td>{c.quiz_count}</td>
+                  <td style={{ textAlign: 'right' }}>
+                    <button className="btn-secondary" onClick={() => openClass(c)} style={{ padding: '0.35rem 0.7rem', fontSize: '0.82rem' }}>
+                      <Eye size={14} /> {selected?.class_id === c.class_id ? 'Reload' : 'Open'}
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {selected && (
+        <div style={{ marginTop: '1rem', display: 'grid', gap: '1rem' }}>
+          <div>
+            <h4 style={{ fontSize: '0.95rem', marginBottom: '0.5rem' }}>Assignments in {selected.name}</h4>
+            {assignments.length === 0 ? <p className="text-muted" style={{ fontSize: '0.85rem' }}>No assignments.</p> : (
+              <table className="data-table" style={{ width: '100%' }}>
+                <thead><tr><th>Title</th><th>Marks</th><th>Deadline</th><th style={{ textAlign: 'right' }}>Actions</th></tr></thead>
+                <tbody>
+                  {assignments.map(a => (
+                    <tr key={a.assignment_id}>
+                      <td><strong>{a.title}</strong></td>
+                      <td>{a.total_marks}</td>
+                      <td>{a.deadline ? formatDateTime(a.deadline) : <span className="text-muted">none</span>}</td>
+                      <td style={{ textAlign: 'right' }}>
+                        <div style={{ display: 'inline-flex', gap: '0.3rem' }}>
+                          <button className="btn-secondary" onClick={() => setDeadlineTarget({ kind: 'assignment', item: a })} style={{ padding: '0.35rem 0.6rem', fontSize: '0.82rem' }}>
+                            <CalendarClock size={14} /> Deadline
+                          </button>
+                          <button className="btn-secondary" onClick={() => showSubs(a)} style={{ padding: '0.35rem 0.6rem', fontSize: '0.82rem' }}>
+                            <Eye size={14} /> Submissions
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+
+          {subsFor && (
+            <div className="glass-panel" style={{ padding: '0.85rem' }}>
+              <h4 style={{ fontSize: '0.95rem', marginBottom: '0.5rem' }}>Submissions for "{subsFor.title}"</h4>
+              {subs === null ? <p className="text-muted">Loading...</p> : subs.length === 0 ? <p className="text-muted" style={{ fontSize: '0.85rem' }}>No submissions yet.</p> : (
+                <table className="data-table" style={{ width: '100%' }}>
+                  <thead><tr><th>Student</th><th>Submitted</th><th>Status</th><th>Score</th><th style={{ textAlign: 'right' }}></th></tr></thead>
+                  <tbody>
+                    {subs.map(sub => (
+                      <tr key={sub.submission_id}>
+                        <td>{userName(sub.student_id)}</td>
+                        <td>{sub.created_at ? formatDateTime(sub.created_at) : '—'}</td>
+                        <td>{statusPill(sub.status)}</td>
+                        <td>{sub.score ?? '—'}</td>
+                        <td style={{ textAlign: 'right' }}>
+                          <button className="btn-secondary" onClick={() => removeSub(sub)} style={{ padding: '0.35rem 0.6rem', fontSize: '0.82rem', color: 'var(--danger)' }} title="Remove this submission so the student can upload again">
+                            <Trash2 size={14} /> Remove
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          )}
+
+          <div>
+            <h4 style={{ fontSize: '0.95rem', marginBottom: '0.5rem' }}>Quizzes in {selected.name}</h4>
+            {quizzes.length === 0 ? <p className="text-muted" style={{ fontSize: '0.85rem' }}>No quizzes.</p> : (
+              <table className="data-table" style={{ width: '100%' }}>
+                <thead><tr><th>Title</th><th>Questions</th><th>Time limit</th><th>Deadline</th><th style={{ textAlign: 'right' }}>Actions</th></tr></thead>
+                <tbody>
+                  {quizzes.map(q => (
+                    <tr key={q.quiz_id}>
+                      <td><strong>{q.title}</strong></td>
+                      <td>{q.question_count ?? (q.questions || []).length}</td>
+                      <td>{q.time_limit_minutes} min</td>
+                      <td>{q.deadline ? formatDateTime(q.deadline) : <span className="text-muted">none</span>}</td>
+                      <td style={{ textAlign: 'right' }}>
+                        <button className="btn-secondary" onClick={() => setDeadlineTarget({ kind: 'quiz', item: q })} style={{ padding: '0.35rem 0.6rem', fontSize: '0.82rem' }}>
+                          <CalendarClock size={14} /> Deadline
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </div>
+      )}
+
+    </section>
+    {deadlineTarget && (
+      <ChangeDeadlineModal
+        target={deadlineTarget}
+        onClose={() => setDeadlineTarget(null)}
+        onSaved={() => { setDeadlineTarget(null); flash('Deadline changed; the teacher has been notified.'); reloadClass(); }}
+      />
+    )}
+    </>
+  );
+}
+
+function ChangeDeadlineModal({ target, onClose, onSaved }) {
+  const { kind, item } = target;
+  const [value, setValue] = useState(item.deadline ? toDatetimeLocalValue(item.deadline) : '');
+  const [reason, setReason] = useState('');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const submit = async (e) => {
+    e.preventDefault();
+    setError('');
+    if (reason.trim().length < 3) { setError('Give a reason (at least 3 characters); it goes into the audit log.'); return; }
+    if (value && isPast(value)) { setError('Deadline cannot be in the past.'); return; }
+    setBusy(true);
+    try {
+      if (kind === 'assignment') {
+        await api.patch(`/assignments/${item.assignment_id}`, null, { params: { deadline: value ? toApiDatetime(value) : 'none', reason: reason.trim() } });
+      } else {
+        await api.patch(`/quizzes/${item.quiz_id}`, { deadline: value ? toApiDatetime(value) : '', reason: reason.trim() });
+      }
+      onSaved();
+    } catch (err) {
+      setError(err.response?.data?.detail || 'Save failed.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Modal title={`Change deadline: ${item.title}`} onClose={onClose}>
+      {error && <div className="error-banner">{error}</div>}
+      <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
+        <Field label={`New ${kind} deadline (leave empty to remove it)`}>
+          <DateTimeField value={value} min={nowForDatetimeLocal()} onChange={setValue} />
+        </Field>
+        <Field label="Reason (shown to the teacher and kept in the audit log)">
+          <input type="text" className="input-field" value={reason} onChange={e => setReason(e.target.value)} placeholder="e.g. Extension requested by the class" required />
+        </Field>
+        <div className="modal-actions">
+          <button type="button" className="btn-secondary" onClick={onClose}>Cancel</button>
+          <button type="submit" className="btn-primary" disabled={busy}>
+            <Save size={16} /> {busy ? 'Saving...' : 'Save deadline'}
+          </button>
+        </div>
+      </form>
+    </Modal>
   );
 }

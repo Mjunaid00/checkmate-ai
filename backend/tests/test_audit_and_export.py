@@ -86,3 +86,12 @@ def test_student_rows_for_one_student():
     assignments, quizzes, enrollments, submissions, attempts, students = _data()
     rows = student_rows("s2", assignments, quizzes, submissions, attempts)
     assert [(r["Type"], r["Status"]) for r in rows] == [("Assignment", "Not Submitted"), ("Quiz", "submitted")]
+
+
+def test_audit_entry_without_reason_is_allowed_only_when_not_required():
+    from services.audit import audit_entry, AuditError
+    actor = {"id": "a1", "name": "Admin", "role": "admin"}
+    entry = audit_entry(actor, "user_deleted", "user", "u1", None, {"email": "x@y.z"}, require_reason=False)
+    assert entry["reason"] == "" and entry["action"] == "user_deleted" and entry["details"] == {"email": "x@y.z"}
+    with pytest.raises(AuditError):
+        audit_entry(actor, "submission_reset", "submission", "s1", None, require_reason=True)

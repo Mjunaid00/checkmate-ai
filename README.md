@@ -43,7 +43,7 @@ AI-powered exam grading platform with Explainable AI (XAI) feedback, built for t
   appear in the CSV / Excel grade matrix next to assignments.
 * **Shareable package**: `python scripts\make_share_package.py` builds `dist-share\CheckMateAI-<date>.zip`
   for another Windows laptop with an NVIDIA GPU (see START-HERE.txt inside the zip).
-* Checks: `python -m pytest tests` in `backend/` (104 tests) and `python scripts\e2e_quiz.py --db <throwaway db>`
+* Checks: `python -m pytest tests` in `backend/` (109 tests) and `python scripts\e2e_quiz.py --db <throwaway db>`
   against a running stack started with `DATABASE_NAME=<throwaway db>`.
 
 ### Fixes (2026-11-09)
@@ -52,6 +52,15 @@ AI-powered exam grading platform with Explainable AI (XAI) feedback, built for t
 * **Student "Submit Answer" dialog was invisible on long dashboards.** The dashboard's fade-in animation left a `transform` on the page wrapper (`animation-fill-mode: forwards`), which made the wrapper the containing block for every `position: fixed` dialog, so the upload and confirmation dialogs were centred in the 2000 px page instead of the viewport. The animation no longer uses a transform or `forwards`; this fixes all modals in the app.
 * **Starting a quiz twice at the same instant (double click, second tab) returned a 500** (duplicate key on `quiz_sessions`). Both requests now share the one session.
 * Checks: unit tests cover the prompt, the top-up rounds and the session race; `e2e_quiz.py` now asserts the exact generated count and fires two simultaneous starts.
+
+### Admin full control (2026-11-09)
+
+The Admin Panel now covers more than accounts:
+
+* **Accounts**: edit name, email, role, institution and active flag, reset passwords, create and delete accounts (the last admin cannot be demoted or deleted). Every admin account action is written to the audit log.
+* **Classes, deadlines and submissions**: a browser of every class with its teacher and counts. Opening a class lists its assignments and quizzes; the admin can change any deadline (or remove it). The change needs a reason, is written to the audit log with the old and new value, and the owning teacher is notified. Teachers still edit their own deadlines as before, without a reason.
+* **Student submissions on request**: per assignment the admin sees every submission (student, time, status, score) and can remove one with a reason; the student is notified and may upload again. The same override is available to the assignment's teacher ("Allow resubmit").
+* API: `GET /admin/classes`; `PATCH /assignments/{id}?deadline=&reason=` and `PATCH /quizzes/{id}` (`reason` in the body) accept admins for any record; `POST /submissions/{id}/allow-resubmission` accepts admins. Live checks: `python scripts\e2e_admin.py --db <throwaway db>` (31 checks; start the backend with `REQUIRE_INSTITUTION_HEADER=false` so the test upload is accepted).
 
 ## Tech Stack
 

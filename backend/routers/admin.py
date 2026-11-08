@@ -24,6 +24,7 @@ from database import get_db
 from core.security import hash_password
 from routers.auth import _validate_name
 from routers.deps import get_current_admin
+from services.audit import record_audit
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -39,6 +40,7 @@ class AdminUserCreate(BaseModel):
 
 class AdminUserUpdate(BaseModel):
     name: Optional[str] = Field(None, min_length=2, max_length=80)
+    email: Optional[EmailStr] = None
     role: Optional[Literal["student", "teacher", "admin"]] = None
     institution: Optional[str] = None
     is_active: Optional[bool] = None
@@ -197,6 +199,13 @@ async def update_user(
     updates = {}
     if body.name is not None:
         updates["name"] = _validate_name(body.name)
+    if body.email is not None:
+        new_email = body.email.strip().lower()
+        if new_email != target.get("email"):
+            taken = await db["users"].find_one({"email": new_email, "_id": {"$ne": target["_id"]}})
+            if taken:
+                raise HTTPException(status_code=409, detail="That email is already used by another account")
+            updates["email"] = new_email
     if body.institution is not None:
         updates["institution"] = body.institution.strip()
     if body.is_active is not None:
@@ -217,6 +226,10 @@ async def update_user(
 
     await db["users"].update_one({"_id": target["_id"]}, {"$set": updates})
     updated = await db["users"].find_one({"_id": target["_id"]})
+    await record_audit(
+        db, admin, "user_updated", "user", user_id, None, require_reason=False,
+        details={"email": target.get("email"), "changes": {k: {"from": target.get(k), "to": v} for k, v in updates.items()}},
+    )
     return _to_admin_user_out(updated)
 
 
@@ -224,7 +237,7 @@ async def update_user(
 async def reset_password(
     user_id: str,
     body: AdminPasswordReset,
-    _admin: dict = Depends(get_current_admin),
+    admin: dict = Depends(get_current_admin),
     db=Depends(get_db),
 ):
     if not ObjectId.is_valid(user_id):
@@ -237,6 +250,8 @@ async def reset_password(
         {"_id": target["_id"]},
         {"$set": {"hashed_password": hash_password(body.new_password)}},
     )
+    await record_audit(db, admin, "password_reset", "user", user_id, None, require_reason=False,
+                       details={"email": target.get("email"), "role": target.get("role")})
     return {"detail": "Password reset successfully"}
 
 
@@ -273,3 +288,38 @@ async def delete_user(
         await db["enrollments"].delete_many({"student_id": sid})
 
     await db["users"].delete_one({"_id": target["_id"]})
+    await record_audit(db, admin, "user_deleted", "user", sid, None, require_reason=False,
+                       details={"email": target.get("email"), "role": target.get("role"), "name": target.get("name")})
+
+
+# ── Oversight: every class with its teacher and counts ──────────────────────
+
+@router.get("/classes")
+async def list_all_classes(
+    _admin: dict = Depends(get_current_admin),
+    db=Depends(get_db),
+):
+    """All classes in the system, with the owning teacher and counts, for the admin's class browser."""
+    classes = await db["classes"].find({}).sort("created_at", -1).to_list(length=1000)
+    teacher_ids = {c.get("teacher_id") for c in classes if c.get("teacher_id") and ObjectId.is_valid(c.get("teacher_id"))}
+    teachers = {}
+    if teacher_ids:
+        async for u in db["users"].find({"_id": {"$in": [ObjectId(t) for t in teacher_ids]}}, {"name": 1, "email": 1}):
+            teachers[str(u["_id"])] = u
+    out = []
+    for c in classes:
+        cid = str(c["_id"])
+        t = teachers.get(c.get("teacher_id"), {})
+        out.append({
+            "class_id": cid,
+            "name": c.get("name", ""),
+            "description": c.get("description"),
+            "teacher_id": c.get("teacher_id"),
+            "teacher_name": t.get("name"),
+            "teacher_email": t.get("email"),
+            "student_count": await db["enrollments"].count_documents({"class_id": cid}),
+            "assignment_count": await db["assignments"].count_documents({"class_id": cid}),
+            "quiz_count": await db["quizzes"].count_documents({"class_id": cid}),
+            "created_at": c.get("created_at"),
+        })
+    return out

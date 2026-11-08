@@ -18,6 +18,7 @@ from config import (
 )
 from database import get_db
 from services.student_safe import redact_keyword_analysis
+from services.permissions import can_manage, is_admin_override
 from services.audit import AuditError, record_audit
 import shutil
 from models.school import SubmissionOut
@@ -327,8 +328,9 @@ async def allow_resubmission(
     if not ObjectId.is_valid(sub["assignment_id"]):
         raise HTTPException(status_code=400, detail="Invalid assignment reference")
     assignment = await db["assignments"].find_one({"_id": ObjectId(sub["assignment_id"])})
-    if not assignment or assignment.get("teacher_id") != current_teacher["id"]:
+    if not assignment or not can_manage(current_teacher, assignment.get("teacher_id")):
         raise HTTPException(status_code=403, detail="Not authorized to change this submission")
+    by_admin = is_admin_override(current_teacher, assignment.get("teacher_id"))
     try:
         await record_audit(
             db, current_teacher, "submission_reset", "submission", submission_id, body.reason,
@@ -348,7 +350,9 @@ async def allow_resubmission(
         db,
         user_id=sub["student_id"],
         title="You may submit again",
-        body=f"Your teacher allowed a new submission for '{assignment.get('title', 'the assignment')}' ({body.reason.strip()})",
+        body=(f"An administrator removed your submission for '{assignment.get('title', 'the assignment')}' at request "
+              f"({body.reason.strip()}). You may upload again." if by_admin else
+              f"Your teacher allowed a new submission for '{assignment.get('title', 'the assignment')}' ({body.reason.strip()})"),
         link="/",
         category="grading",
     )

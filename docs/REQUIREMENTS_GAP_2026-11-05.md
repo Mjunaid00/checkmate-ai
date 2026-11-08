@@ -77,3 +77,15 @@ Verified by 94 unit tests and `scripts/e2e_quiz.py` (57 live checks).
 | "Number of MCQs is always 1 even when 5 is selected" | LM Studio's server log shows the model answered the real requests for 5 questions about "LLM" with a single question (it mirrored the one-item JSON example in the prompt). The code passed the number correctly end to end. | Prompt says *exactly N* and shows N example items; `generate_quiz_questions` tops up the missing questions (max 3 rounds, no repeats); UI note when the model still falls short; e2e asserts the exact count. |
 | "Assignment submission button not working" | Reproduced in Chrome: the student dashboard wrapper keeps a `transform` after its fade-in animation, so the `position: fixed` upload dialog was centred in the 2186 px page, 356 px above the viewport; the confirmation dialog likewise. No request ever reached the backend. | Fade-in animates opacity only and no longer keeps its end state; the modal's own scale-in drops `forwards`. Verified in Chrome: both dialogs fully inside the viewport, and the final submit reaches `POST /submissions/`. |
 | (found in the backend log) `POST /quizzes/{id}/start` 500 `DuplicateKeyError` | Two simultaneous starts both inserted a session. | `services/quiz_sessions.get_or_create_session` returns the winner's start time on a duplicate-key error. |
+
+## Update 2026-11-09 (admin full control)
+
+Requested: the admin has full control over teacher and student accounts, can change assignment and quiz deadlines, and can see and remove student submissions on request.
+
+| Area | Done |
+|---|---|
+| Accounts | Existing admin user management kept; added email editing (uniqueness check) and audit entries for every create / update / password reset / delete (`user_*`, `password_reset` actions, no reason needed). |
+| Deadlines | `services/permissions.py` (`owner_filter`, `can_manage`, `is_admin_override`, `describe_changes`). Assignment and quiz PATCH accept admins for any record; an admin edit of someone else's record needs a `reason` (400 without), writes `assignment_updated` / `quiz_updated` with old and new values, and notifies the owning teacher. |
+| Submissions | `GET /submissions/assignment/{id}` already allowed admins; `allow-resubmission` now accepts admins (reason, audit, student notified "an administrator removed your submission"). Admin Panel lists submissions per assignment with a Remove button. |
+| UI | New Admin Panel section "Classes, deadlines and submissions" (`GET /admin/classes`), deadline modal with reason, audit log labels and change summaries, email field in the edit-user modal. |
+| Checks | 109 unit tests; `scripts/e2e_admin.py` 31/31; `scripts/e2e_quiz.py --skip-ai` 55/55; browser check of the new section. |

@@ -19,6 +19,7 @@ from services.audit import AuditError, record_audit
 from services.quiz_logic import QuizValidationError, coerce_answers, is_correct, normalise_question, submission_window
 from services.quiz_logic import validate_questions as validate_question_dicts
 from services.quiz_sessions import get_or_create_session
+from services.permissions import describe_changes, is_admin_override, owner_filter
 from services.notifications import notify_user
 
 router = APIRouter(prefix="/quizzes", tags=["quizzes"])
@@ -60,6 +61,7 @@ class QuizUpdateBody(BaseModel):
     shuffle_questions: Optional[bool] = None
     shuffle_options: Optional[bool] = None
     show_correct_after: Optional[bool] = None
+    reason: Optional[str] = None  # required when an admin edits another teacher's quiz
 
 
 class QuizGenerateBody(BaseModel):
@@ -350,13 +352,14 @@ async def update_quiz(
     current_teacher: dict = Depends(get_current_teacher),
     db=Depends(get_db),
 ):
-    """Edit a quiz."""
+    """Edit a quiz. Admins may edit any quiz with a reason (audited, owner notified)."""
     if not ObjectId.is_valid(quiz_id):
         raise HTTPException(status_code=400, detail="Invalid quiz_id")
 
-    quiz = await db["quizzes"].find_one({"_id": ObjectId(quiz_id), "teacher_id": current_teacher["id"]})
+    quiz = await db["quizzes"].find_one({"_id": ObjectId(quiz_id), **owner_filter(current_teacher)})
     if not quiz:
         raise HTTPException(status_code=404, detail="Quiz not found")
+    override = is_admin_override(current_teacher, quiz.get("teacher_id"))
 
     updates = {}
     if body.title is not None:
@@ -382,10 +385,28 @@ async def update_quiz(
     if body.show_correct_after is not None:
         updates["show_correct_after"] = body.show_correct_after
 
+    if updates and override:
+        try:
+            await record_audit(
+                db, current_teacher, "quiz_updated", "quiz", quiz_id, body.reason,
+                details={"quiz_title": quiz.get("title"), "class_id": quiz.get("class_id"),
+                         "teacher_id": quiz.get("teacher_id"),
+                         "changes": describe_changes(quiz, {k: v for k, v in updates.items() if k != "questions"})},
+            )
+        except AuditError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
     if updates:
         await db["quizzes"].update_one({"_id": ObjectId(quiz_id)}, {"$set": updates})
 
     updated = await db["quizzes"].find_one({"_id": ObjectId(quiz_id)})
+
+    if updates and override and quiz.get("teacher_id"):
+        await notify_user(
+            db, user_id=quiz["teacher_id"], title="Quiz changed by an administrator",
+            body=f"An administrator changed {', '.join(sorted(updates.keys()))} of '{quiz.get('title')}' ({(body.reason or '').strip()}).",
+            link="/", category="quiz",
+        )
 
     # Notify enrolled students if deadline or time_limit changed
     if "deadline" in updates or "time_limit_minutes" in updates:
