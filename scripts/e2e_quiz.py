@@ -15,6 +15,7 @@ end. Only ever point it at a throw-away database. Review before running elsewher
 """
 import argparse
 import io
+from concurrent.futures import ThreadPoolExecutor
 import sys
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -98,7 +99,13 @@ def main() -> int:
     check("student view carries question type", r["questions"][1]["type"] == "true_false")
 
     # ── start twice: same server clock, same order ───────────────────────────
-    s1 = c.post(f"{BASE}/quizzes/{quiz_id}/start", headers=student)
+    # two starts at the same instant (double click / second tab) must both succeed and agree
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        f1 = pool.submit(c.post, f"{BASE}/quizzes/{quiz_id}/start", headers=student)
+        f2 = pool.submit(c.post, f"{BASE}/quizzes/{quiz_id}/start", headers=student)
+    s1, s1b = f1.result(), f2.result()
+    check("simultaneous starts both succeed (was a duplicate-key 500)", s1.status_code == 200 and s1b.status_code == 200, (s1.status_code, s1b.status_code))
+    check("simultaneous starts share one started_at", s1.status_code == 200 and s1b.status_code == 200 and s1.json()["started_at"] == s1b.json()["started_at"])
     check("start -> 200", s1.status_code == 200, s1.text[:120])
     s1 = s1.json()
     check("start returns ends_at + seconds_left", "ends_at" in s1 and 0 < s1["seconds_left"] <= 300, s1.get("seconds_left"))
@@ -244,15 +251,15 @@ def main() -> int:
     if not args.skip_ai:
         r = c.post(f"{BASE}/quizzes/generate", json={"topic": "the water cycle", "num_questions": 3, "difficulty": "easy",
                                                      "question_type": "true_false", "grade_level": "Grade 6", "subject": "Science"}, headers=teacher)
-        ok = r.status_code == 200 and r.json()["count"] >= 1 and all(q["type"] == "true_false" and q["options"] == ["True", "False"] for q in r.json()["questions"])
-        check("generate true/false from topic", ok, (r.status_code, r.text[:160]))
+        ok = r.status_code == 200 and r.json()["count"] == 3 and all(q["type"] == "true_false" and q["options"] == ["True", "False"] for q in r.json()["questions"])
+        check("generate exactly 3 true/false from topic", ok, (r.status_code, r.text[:160]))
 
         txt = ("Photosynthesis is the process by which green plants use sunlight to synthesise food from carbon dioxide and water. "
                "It takes place in the chloroplasts, where chlorophyll absorbs light. The light reactions produce ATP and NADPH, "
                "and the Calvin cycle uses them to fix carbon dioxide into glucose. Oxygen is released as a by-product.")
         r = c.post(f"{BASE}/quizzes/generate-from-document", data={"num_questions": "2", "difficulty": "medium", "question_type": "mcq"},
                    files={"file": ("photosynthesis.txt", txt.encode("utf-8"), "text/plain")}, headers=teacher)
-        check("generate MCQ from TXT", r.status_code == 200 and r.json()["count"] >= 1 and r.json()["source_chars"] > 200, (r.status_code, r.text[:160]))
+        check("generate exactly 2 MCQ from TXT", r.status_code == 200 and r.json()["count"] == 2 and r.json()["source_chars"] > 200, (r.status_code, r.text[:160]))
 
         from docx import Document
         d = Document()
@@ -263,7 +270,7 @@ def main() -> int:
         d.save(buf)
         r = c.post(f"{BASE}/quizzes/generate-from-document", data={"num_questions": "2", "difficulty": "easy", "question_type": "mixed", "subject": "Physics"},
                    files={"file": ("ohm.docx", buf.getvalue(), "application/vnd.openxmlformats-officedocument.wordprocessingml.document")}, headers=teacher)
-        check("generate mixed questions from DOCX", r.status_code == 200 and r.json()["count"] >= 1, (r.status_code, r.text[:160]))
+        check("generate exactly 2 mixed questions from DOCX", r.status_code == 200 and r.json()["count"] == 2, (r.status_code, r.text[:160]))
 
         r = c.post(f"{BASE}/quizzes/generate-from-document", data={"num_questions": "2"},
                    files={"file": ("old.doc", b"xx", "application/msword")}, headers=teacher)

@@ -385,19 +385,22 @@ select.input-field { cursor: pointer; }
 @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
 
 /* ── Animations ──────────────────────────────────────────────────────────── */
+/* No transform here and no "forwards": a transform that stays on a wrapper (even translateY(0))
+   becomes the containing block of every position: fixed modal inside it, which pushed the
+   upload / confirm dialogs out of the viewport on long dashboards. */
 @keyframes fadeIn {
-  from { opacity: 0; transform: translateY(10px); }
-  to { opacity: 1; transform: translateY(0); }
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
-.fade-in { animation: fadeIn 0.4s ease forwards; }
+.fade-in { animation: fadeIn 0.4s ease; }
 
 @keyframes scaleIn {
   from { opacity: 0; transform: scale(0.95); }
   to { opacity: 1; transform: scale(1); }
 }
 
-.scale-in { animation: scaleIn 0.3s ease forwards; }
+.scale-in { animation: scaleIn 0.3s ease; }
 
 /* ── Utility Classes ─────────────────────────────────────────────────────── */
 .text-muted { color: var(--text-muted); font-size: 0.85rem; }

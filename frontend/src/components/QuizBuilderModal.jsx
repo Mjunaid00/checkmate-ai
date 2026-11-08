@@ -33,6 +33,7 @@ export default function QuizBuilderModal({ classId, onClose, onSaved }) {
     objectives: '',
   });
   const [pdfFile, setPdfFile] = useState(null); // PDF, TXT, MD or DOCX reference material
+  const [genNote, setGenNote] = useState(''); // shown when the AI returned fewer questions than asked
 
   function blankQuestion(type = 'mcq') {
     return {
@@ -107,6 +108,10 @@ export default function QuizBuilderModal({ classId, onClose, onSaved }) {
         return;
       }
       setQuestions(res.data.questions);
+      const got = res.data.questions.length;
+      setGenNote(got < aiForm.num_questions
+        ? `The AI returned ${got} of the ${aiForm.num_questions} requested questions. Add the rest below, or go back and generate again.`
+        : '');
       setMeta(m => ({ ...m, title: m.title || `Quiz on ${derivedTopic}` }));
       setStep('review');
     } catch (err) {
@@ -386,6 +391,11 @@ export default function QuizBuilderModal({ classId, onClose, onSaved }) {
                   Total: {questions.reduce((s, q) => s + (parseInt(q.marks) || 0), 0)} marks
                 </span>
               </h3>
+              {step === 'review' && genNote && (
+                <div style={{ fontSize: '0.83rem', color: 'var(--status-pending)', background: 'var(--status-pending-bg)', border: '1px solid var(--warning)', borderRadius: '0.5rem', padding: '0.6rem 0.8rem', marginBottom: '0.75rem' }}>
+                  {genNote}
+                </div>
+              )}
 
               {classQuizzes.length > 0 && (
                 <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginBottom: '0.75rem', flexWrap: 'wrap' }}>

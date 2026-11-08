@@ -69,3 +69,11 @@ TXT and a DOCX file with the local model).
 | 5b | Export | IMPLEMENTED | Excel export for class and student reports; quiz attempts included in CSV and Excel. |
 
 Verified by 94 unit tests and `scripts/e2e_quiz.py` (57 live checks).
+
+## Update 2026-11-09 (two bugs reported after use)
+
+| Report | Root cause (verified) | Fix |
+|---|---|---|
+| "Number of MCQs is always 1 even when 5 is selected" | LM Studio's server log shows the model answered the real requests for 5 questions about "LLM" with a single question (it mirrored the one-item JSON example in the prompt). The code passed the number correctly end to end. | Prompt says *exactly N* and shows N example items; `generate_quiz_questions` tops up the missing questions (max 3 rounds, no repeats); UI note when the model still falls short; e2e asserts the exact count. |
+| "Assignment submission button not working" | Reproduced in Chrome: the student dashboard wrapper keeps a `transform` after its fade-in animation, so the `position: fixed` upload dialog was centred in the 2186 px page, 356 px above the viewport; the confirmation dialog likewise. No request ever reached the backend. | Fade-in animates opacity only and no longer keeps its end state; the modal's own scale-in drops `forwards`. Verified in Chrome: both dialogs fully inside the viewport, and the final submit reaches `POST /submissions/`. |
+| (found in the backend log) `POST /quizzes/{id}/start` 500 `DuplicateKeyError` | Two simultaneous starts both inserted a session. | `services/quiz_sessions.get_or_create_session` returns the winner's start time on a duplicate-key error. |

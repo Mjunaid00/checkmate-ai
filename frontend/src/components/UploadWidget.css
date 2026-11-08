@@ -16,7 +16,7 @@
   background: var(--bg-secondary);
   padding: 2.5rem;
   position: relative;
-  animation: scaleIn 0.25s ease forwards;
+  animation: scaleIn 0.25s ease; /* no "forwards": a lingering transform would trap the nested confirm dialog */
 }
 
 .close-btn {

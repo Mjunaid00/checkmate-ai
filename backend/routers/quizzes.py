@@ -18,6 +18,7 @@ from services.quiz_generator import GenerationError, QUESTION_TYPES as GENERATIO
 from services.audit import AuditError, record_audit
 from services.quiz_logic import QuizValidationError, coerce_answers, is_correct, normalise_question, submission_window
 from services.quiz_logic import validate_questions as validate_question_dicts
+from services.quiz_sessions import get_or_create_session
 from services.notifications import notify_user
 
 router = APIRouter(prefix="/quizzes", tags=["quizzes"])
@@ -467,14 +468,8 @@ async def start_quiz(
     # Millisecond precision: MongoDB stores no microseconds, and the value must read back
     # identical so a refresh gets the same clock and the same shuffle seed.
     now = datetime.utcnow().replace(microsecond=(datetime.utcnow().microsecond // 1000) * 1000)
-    session = await db["quiz_sessions"].find_one({"quiz_id": quiz_id, "student_id": current_student["id"]})
-    if session:
-        started_at = session["started_at"]
-    else:
-        started_at = now
-        await db["quiz_sessions"].insert_one({
-            "quiz_id": quiz_id, "student_id": current_student["id"], "started_at": started_at,
-        })
+    # Two simultaneous starts (double click, second tab) share one session instead of a 500.
+    started_at = await get_or_create_session(db["quiz_sessions"], quiz_id, current_student["id"], now)
     window = submission_window(quiz, started_at, now)
     if not window["open"]:
         raise HTTPException(status_code=403, detail="Your time for this quiz has run out")

@@ -43,8 +43,15 @@ AI-powered exam grading platform with Explainable AI (XAI) feedback, built for t
   appear in the CSV / Excel grade matrix next to assignments.
 * **Shareable package**: `python scripts\make_share_package.py` builds `dist-share\CheckMateAI-<date>.zip`
   for another Windows laptop with an NVIDIA GPU (see START-HERE.txt inside the zip).
-* Checks: `python -m pytest tests` in `backend/` (94 tests) and `python scripts\e2e_quiz.py --db <throwaway db>`
+* Checks: `python -m pytest tests` in `backend/` (104 tests) and `python scripts\e2e_quiz.py --db <throwaway db>`
   against a running stack started with `DATABASE_NAME=<throwaway db>`.
+
+### Fixes (2026-11-09)
+
+* **AI generation returned one question instead of the requested number.** The model (qwen2.5-vl-7b) copied the one-item JSON example in the prompt for short topics such as "LLM". The prompt now says *exactly N*, shows one example item per requested question, and the generator asks again for the missing ones (up to two extra rounds, listing the questions it already has so they are not repeated, duplicates dropped). The quiz builder says so if the model still fell short.
+* **Student "Submit Answer" dialog was invisible on long dashboards.** The dashboard's fade-in animation left a `transform` on the page wrapper (`animation-fill-mode: forwards`), which made the wrapper the containing block for every `position: fixed` dialog, so the upload and confirmation dialogs were centred in the 2000 px page instead of the viewport. The animation no longer uses a transform or `forwards`; this fixes all modals in the app.
+* **Starting a quiz twice at the same instant (double click, second tab) returned a 500** (duplicate key on `quiz_sessions`). Both requests now share the one session.
+* Checks: unit tests cover the prompt, the top-up rounds and the session race; `e2e_quiz.py` now asserts the exact generated count and fires two simultaneous starts.
 
 ## Tech Stack
 
